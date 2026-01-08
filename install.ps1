@@ -1,0 +1,1 @@
+   Copy-Item build\libs\josmassist-1.0.jar "$env:APPDATA\JOSM\plugins\"

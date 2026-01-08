@@ -1,0 +1,15 @@
+/* ===============================
+   Parking space name validation
+   =============================== */
+
+*[amenity=parking_space][!name],
+*[amenity=parking_space][name=""],
+*[amenity=parking_space][name!~/^[A-Za-z0-9-]+$/] {
+    color: #00E5FF;          /* cyan, NOT selection red */
+    width: 4;
+    fill-color: #00E5FF;
+    fill-opacity: 0.35;
+    casing-color: white;    /* sharp edge on black bg */
+    casing-width: 2;
+    z-index: 10;
+}

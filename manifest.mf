@@ -1,0 +1,7 @@
+Plugin-Class: org.openstreetmap.josm.plugins.josmassist.JosmAssistPlugin
+Plugin-Date: 2024-01-01 00:00:00
+Plugin-Description: JOSM Assist plugin for enhanced polygon selection and level processing
+Plugin-Link: https://github.com/yourusername/josm_assist
+Plugin-Version: 1.0
+Plugin-CanLoadAtRuntime: true
+

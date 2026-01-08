@@ -1,0 +1,62 @@
+apply plugin: 'java'
+apply plugin: 'eclipse'
+
+sourceCompatibility = '1.8'
+targetCompatibility = '1.8'
+
+repositories {
+    mavenCentral()
+    // JOSM repository
+    maven {
+        url 'https://josm.openstreetmap.de/nexus/content/groups/public/'
+    }
+}
+
+dependencies {
+    // JOSM core - use file dependency for local development
+    // Option 1: Download JOSM JAR manually and place in libs/ folder
+    // Option 2: Use Maven dependency (if repository is accessible)
+    // For now, we'll try to use a file if it exists, otherwise try Maven
+    
+    def josmJar = file('libs/josm.jar')
+    if (josmJar.exists()) {
+        compileOnly files(josmJar)
+    } else {
+        // Try to use Maven dependency - may fail if repository is not accessible
+        // In that case, download JOSM JAR manually from https://josm.openstreetmap.de/
+        // and place it in libs/josm.jar
+        compileOnly 'org.openstreetmap.josm:josm:latest.integration'
+    }
+    
+    // For testing (optional)
+    testImplementation 'junit:junit:4.13.2'
+}
+
+sourceSets {
+    main {
+        java {
+            srcDir 'src'
+        }
+    }
+}
+
+jar {
+    archiveBaseName = 'josmassist'
+    archiveVersion = '1.0'
+    
+    manifest {
+        attributes(
+            'Plugin-Class': 'org.openstreetmap.josm.plugins.josmassist.JosmAssistPlugin',
+            'Plugin-Date': new Date().format("yyyy-MM-dd HH:mm:ss"),
+            'Plugin-Description': 'JOSM Assist plugin for enhanced polygon selection and level processing',
+            'Plugin-Link': 'https://github.com/xoofee/josm_assist',
+            'Plugin-Version': '1.0',
+            'Plugin-Mainversion': '18600',
+            'Plugin-CanLoadAtRuntime': 'true'
+        )
+    }
+    
+    // Don't bundle JOSM classes - plugins should only contain plugin code
+    // JOSM will provide the classes at runtime
+}
+
