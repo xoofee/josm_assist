@@ -23,10 +23,16 @@ public class PolygonClickHandler {
 
     /**
      * Handles mouse click events for polygon selection.
+     * Only responds to right mouse click.
      * @param e the mouse event
      * @return true if a polygon was selected
      */
     public boolean handleMouseClick(MouseEvent e) {
+        // Only respond to right mouse click (BUTTON3)
+        if (e.getButton() != java.awt.event.MouseEvent.BUTTON3) {
+            return false;
+        }
+        
         if (!JosmAssistPlugin.getInstance().isEnabled()) {
             return false;
         }
