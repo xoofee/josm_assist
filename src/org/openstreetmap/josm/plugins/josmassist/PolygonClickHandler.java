@@ -6,6 +6,7 @@ import java.util.Comparator;
 import java.util.List;
 
 import org.openstreetmap.josm.data.coor.LatLon;
+import org.openstreetmap.josm.data.osm.BBox;
 import org.openstreetmap.josm.data.osm.DataSet;
 import org.openstreetmap.josm.data.osm.Node;
 import org.openstreetmap.josm.data.osm.Way;
@@ -124,9 +125,20 @@ public class PolygonClickHandler {
             System.out.println("[JOSM Assist] PolygonClickHandler: Current level: " + currentLevel);
             
             if (currentLevel != null && !currentLevel.isEmpty()) {
+                // Calculate center of selected polygon using JOSM's centroid calculation
+                org.openstreetmap.josm.data.coor.EastNorth centroidEN = org.openstreetmap.josm.tools.Geometry.getCentroid(selectedWay.getNodes());
+                LatLon polygonCenter = null;
+                if (centroidEN != null) {
+                    polygonCenter = org.openstreetmap.josm.data.projection.ProjectionRegistry.getProjection().eastNorth2latlon(centroidEN);
+                    System.out.println("[JOSM Assist] PolygonClickHandler: Polygon center calculated: " + polygonCenter);
+                } else {
+                    System.out.println("[JOSM Assist] PolygonClickHandler: Could not calculate polygon center, using click point");
+                    polygonCenter = click;
+                }
+                
                 // Search for nearest way within 50 meters with same level and a name
                 System.out.println("[JOSM Assist] PolygonClickHandler: Searching for nearest named way in level '" + currentLevel + "' within 50 meters...");
-                Way nearestNamedWay = findNearestNamedWayInLevel(click, selectedWay, currentLevel, ds, 50.0);
+                Way nearestNamedWay = findNearestNamedWayInLevel(polygonCenter, selectedWay, currentLevel, ds, 50.0);
                 if (nearestNamedWay != null) {
                     String name = nearestNamedWay.get("name");
                     if (name != null && !name.isEmpty()) {
@@ -236,27 +248,64 @@ public class PolygonClickHandler {
     
     /**
      * Finds the nearest way within the specified radius that has the same level and a name.
-     * @param clickPoint the clicked location
+     * Uses spatial indexing via DataSet.searchWays(BBox) for efficient search.
+     * @param centerPoint the center point (polygon centroid)
      * @param excludeWay the way to exclude from search (the selected way)
      * @param level the level to match
      * @param ds the dataset to search
      * @param radiusMeters the search radius in meters
      * @return the nearest way with a name, or null if none found
      */
-    private Way findNearestNamedWayInLevel(LatLon clickPoint, Way excludeWay, String level, DataSet ds, double radiusMeters) {
+    private Way findNearestNamedWayInLevel(LatLon centerPoint, Way excludeWay, String level, DataSet ds, double radiusMeters) {
         Way nearestWay = null;
         double minDistance = Double.MAX_VALUE;
-        Node clickNode = new Node(clickPoint);
-        int totalWays = 0;
+        Node centerNode = new Node(centerPoint);
         int sameLevelWays = 0;
         int namedWays = 0;
         int withinRadiusWays = 0;
 
-        System.out.println("[JOSM Assist] PolygonClickHandler: Searching in dataset with " + ds.getWays().size() + " ways");
+        // Create bounding box around center point with radius
+        // Use JOSM's projection system for accurate conversion
+        org.openstreetmap.josm.data.projection.Projection proj = 
+            org.openstreetmap.josm.data.projection.ProjectionRegistry.getProjection();
+        org.openstreetmap.josm.data.coor.EastNorth centerEN = proj.latlon2eastNorth(centerPoint);
+        
+        // Convert radius from meters to projection units
+        double radiusInProjectionUnits = radiusMeters / proj.getMetersPerUnit();
+        
+        // Create bounding box in EastNorth coordinates
+        org.openstreetmap.josm.data.coor.EastNorth minEN = new org.openstreetmap.josm.data.coor.EastNorth(
+            centerEN.east() - radiusInProjectionUnits,
+            centerEN.north() - radiusInProjectionUnits
+        );
+        org.openstreetmap.josm.data.coor.EastNorth maxEN = new org.openstreetmap.josm.data.coor.EastNorth(
+            centerEN.east() + radiusInProjectionUnits,
+            centerEN.north() + radiusInProjectionUnits
+        );
+        
+        // Convert back to LatLon for BBox
+        LatLon minLL = proj.eastNorth2latlon(minEN);
+        LatLon maxLL = proj.eastNorth2latlon(maxEN);
+        
+        // Create BBox from LatLon bounds
+        // BBox has a constructor that takes a Way, so we create a temporary way with nodes
+        // at the bounding box corners
+        Node minNode = new Node(minLL);
+        Node maxNode = new Node(maxLL);
+        Node centerNode1 = new Node(centerPoint);
+        Way tempWay = new Way();
+        tempWay.addNode(minNode);
+        tempWay.addNode(maxNode);
+        tempWay.addNode(centerNode1); // Add center to ensure it's included
+        BBox bbox = new BBox(tempWay);
+        
+        System.out.println("[JOSM Assist] PolygonClickHandler: Searching in bounding box around center: " + centerPoint);
 
-        for (Way way : ds.getWays()) {
-            totalWays++;
-            
+        // Use spatial indexing to search only ways within the bounding box
+        List<Way> candidateWays = ds.searchWays(bbox);
+        System.out.println("[JOSM Assist] PolygonClickHandler: Found " + candidateWays.size() + " ways in bounding box (out of " + ds.getWays().size() + " total)");
+
+        for (Way way : candidateWays) {
             // Skip the selected way itself
             if (way.equals(excludeWay)) {
                 continue;
@@ -276,8 +325,8 @@ public class PolygonClickHandler {
             }
             namedWays++;
 
-            // Calculate distance from click point to way
-            double distance = calculateDistanceToWay(clickNode, way);
+            // Calculate distance from center point to way
+            double distance = calculateDistanceToWay(centerNode, way);
             
             System.out.println("[JOSM Assist] PolygonClickHandler: Found way with level '" + level + "' and name '" + wayName + "' at distance " + distance + " meters");
             
@@ -290,7 +339,7 @@ public class PolygonClickHandler {
             }
         }
 
-        System.out.println("[JOSM Assist] PolygonClickHandler: Search summary - Total ways: " + totalWays + 
+        System.out.println("[JOSM Assist] PolygonClickHandler: Search summary - Candidate ways: " + candidateWays.size() + 
             ", Same level: " + sameLevelWays + ", With name: " + namedWays + ", Within radius: " + withinRadiusWays);
         
         if (nearestWay != null) {
