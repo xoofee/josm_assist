@@ -62,3 +62,27 @@ the default level filtering is good for showing. It automatically make non selec
 Now add this feature, when one level is selected, the new added element (node or way) should have the level tag of this level immediately after the user exit edit mode (maybe press a to start draw and exit edit by press Esc). (otherwise it will be grey and unselectable if you want to edit its tag immediately after creataion, which is very inconvenient because you have to unselect the level to see it, and when multiple floors exist it will be a messy)
 
 
+
+
+## way name interpolate from two adjacent names for names guesing: an enhancement for just copying from nearest
+
+after click in area for empty name (this logic is already implemented, so is not a new logic):
+
+let the selected way be P
+
+1 if the closed two ways (say A B) have name
+2 if the name have only Letter diget and -
+3 extract the trailing digits, that is, A301 to 301, B3-239 to 239
+4 if the two closed lot number is difference in 2, say, B3-239 and B3-237
+if the center of P is between A and B (may project P to line segment AB to detect) 
+then the click way shall be B3-238. (otherwise copy from nearest name)
+
+5 if difference in 1, then 
+if P is in middle of A and B, copy from nearest name
+else infer the number from the relative position to A B and the number
+E.g., if the spatial is A-B-P and A is B3-237 and B is B3-238 then P should be B3-239
+
+6 if difference is 3 or above
+use the current logic (copy from nearest name)
+
+remember to make the code modularized and easy to maintain.
