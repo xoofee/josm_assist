@@ -108,6 +108,43 @@ public class PolygonClickHandler {
         ds.clearSelection();
         ds.addSelected(selectedWay);
 
+        // Check current name - only copy if empty or null
+        String currentName = selectedWay.get("name");
+        boolean hasName = currentName != null && !currentName.isEmpty();
+        String nameToPaste = null;
+
+        System.out.println("[JOSM Assist] PolygonClickHandler: Selected way has name: " + hasName + " (name: '" + currentName + "')");
+
+        // Check if level is selected and find name from nearest way in same level
+        // Only do this if the selected way doesn't already have a name
+        if (!hasName) {
+            LevelProcessingHandler levelHandler = JosmAssistPlugin.getInstance().getLevelHandler();
+            String currentLevel = levelHandler != null ? levelHandler.getCurrentLevelTagWithUpdate() : null;
+            
+            System.out.println("[JOSM Assist] PolygonClickHandler: Current level: " + currentLevel);
+            
+            if (currentLevel != null && !currentLevel.isEmpty()) {
+                // Search for nearest way within 50 meters with same level and a name
+                System.out.println("[JOSM Assist] PolygonClickHandler: Searching for nearest named way in level '" + currentLevel + "' within 50 meters...");
+                Way nearestNamedWay = findNearestNamedWayInLevel(click, selectedWay, currentLevel, ds, 50.0);
+                if (nearestNamedWay != null) {
+                    String name = nearestNamedWay.get("name");
+                    if (name != null && !name.isEmpty()) {
+                        nameToPaste = name; // Store name to paste, but don't modify the way yet
+                        System.out.println("[JOSM Assist] PolygonClickHandler: Found nearest named way! Name to paste: '" + nameToPaste + "'");
+                    } else {
+                        System.out.println("[JOSM Assist] PolygonClickHandler: Found nearest way but it has no name");
+                    }
+                } else {
+                    System.out.println("[JOSM Assist] PolygonClickHandler: No named way found within 50 meters with level '" + currentLevel + "'");
+                }
+            } else {
+                System.out.println("[JOSM Assist] PolygonClickHandler: No level selected, skipping name search");
+            }
+        } else {
+            System.out.println("[JOSM Assist] PolygonClickHandler: Selected way already has a name, skipping name search");
+        }
+
         // Ensure name tag exists (create if missing)
         if (selectedWay.get("name") == null) {
             selectedWay.put("name", "");
@@ -115,8 +152,9 @@ public class PolygonClickHandler {
 
         // Auto-popup name tag editing (like Alt+S)
         // Use SwingUtilities to ensure it runs on the EDT
+        final String nameToPasteFinal = nameToPaste;
         javax.swing.SwingUtilities.invokeLater(() -> {
-            openTagEditor(selectedWay);
+            openTagEditor(selectedWay, nameToPasteFinal);
         });
         
         return true;
@@ -152,11 +190,14 @@ public class PolygonClickHandler {
      * Opens the tag editor for the selected way (simulates Alt+S).
      * Focuses on the "name" tag field.
      * @param way the way to edit
+     * @param nameToPaste the name to paste into the editor (if any)
      */
-    private void openTagEditor(Way way) {
+    private void openTagEditor(Way way, String nameToPaste) {
+        System.out.println("[JOSM Assist] PolygonClickHandler: openTagEditor called with nameToPaste: '" + nameToPaste + "'");
         try {
             MapFrame mapFrame = MainApplication.getMap();
             if (mapFrame == null) {
+                System.out.println("[JOSM Assist] PolygonClickHandler: MapFrame is null");
                 return;
             }
 
@@ -166,6 +207,7 @@ public class PolygonClickHandler {
             Object propDialog = propDialogField.get(mapFrame);
             
             if (propDialog != null) {
+                System.out.println("[JOSM Assist] PolygonClickHandler: Properties dialog found, opening...");
                 java.lang.reflect.Method setVisibleMethod = propDialog.getClass().getMethod("setVisible", boolean.class);
                 setVisibleMethod.invoke(propDialog, true);
                 
@@ -175,10 +217,14 @@ public class PolygonClickHandler {
                     ((java.awt.Window) propDialog).requestFocus();
                 }
                 
-                // Focus on name field
-                focusOnNameField(propDialog);
+                // Focus on name field and paste name if provided
+                focusOnNameField(propDialog, nameToPaste);
+            } else {
+                System.out.println("[JOSM Assist] PolygonClickHandler: Properties dialog is null");
             }
         } catch (Exception ex) {
+            System.out.println("[JOSM Assist] PolygonClickHandler: Exception in openTagEditor: " + ex.getMessage());
+            ex.printStackTrace();
             // If dialog opening fails, at least ensure selection is visible
             try {
                 MainApplication.getMap().repaint();
@@ -189,10 +235,116 @@ public class PolygonClickHandler {
     }
     
     /**
-     * Focuses on the "name" tag field in the properties dialog.
-     * @param propDialog the properties dialog object
+     * Finds the nearest way within the specified radius that has the same level and a name.
+     * @param clickPoint the clicked location
+     * @param excludeWay the way to exclude from search (the selected way)
+     * @param level the level to match
+     * @param ds the dataset to search
+     * @param radiusMeters the search radius in meters
+     * @return the nearest way with a name, or null if none found
      */
-    private void focusOnNameField(Object propDialog) {
+    private Way findNearestNamedWayInLevel(LatLon clickPoint, Way excludeWay, String level, DataSet ds, double radiusMeters) {
+        Way nearestWay = null;
+        double minDistance = Double.MAX_VALUE;
+        Node clickNode = new Node(clickPoint);
+        int totalWays = 0;
+        int sameLevelWays = 0;
+        int namedWays = 0;
+        int withinRadiusWays = 0;
+
+        System.out.println("[JOSM Assist] PolygonClickHandler: Searching in dataset with " + ds.getWays().size() + " ways");
+
+        for (Way way : ds.getWays()) {
+            totalWays++;
+            
+            // Skip the selected way itself
+            if (way.equals(excludeWay)) {
+                continue;
+            }
+
+            // Check if way has the same level
+            String wayLevel = way.get("level");
+            if (wayLevel == null || !wayLevel.equals(level)) {
+                continue;
+            }
+            sameLevelWays++;
+
+            // Check if way has a name
+            String wayName = way.get("name");
+            if (wayName == null || wayName.isEmpty()) {
+                continue;
+            }
+            namedWays++;
+
+            // Calculate distance from click point to way
+            double distance = calculateDistanceToWay(clickNode, way);
+            
+            System.out.println("[JOSM Assist] PolygonClickHandler: Found way with level '" + level + "' and name '" + wayName + "' at distance " + distance + " meters");
+            
+            // Check if within radius and is the nearest so far
+            if (!Double.isNaN(distance) && distance <= radiusMeters && distance < minDistance) {
+                minDistance = distance;
+                nearestWay = way;
+                withinRadiusWays++;
+                System.out.println("[JOSM Assist] PolygonClickHandler: This is the nearest so far (distance: " + distance + " meters)");
+            }
+        }
+
+        System.out.println("[JOSM Assist] PolygonClickHandler: Search summary - Total ways: " + totalWays + 
+            ", Same level: " + sameLevelWays + ", With name: " + namedWays + ", Within radius: " + withinRadiusWays);
+        
+        if (nearestWay != null) {
+            System.out.println("[JOSM Assist] PolygonClickHandler: Selected nearest way with name '" + nearestWay.get("name") + 
+                "' at distance " + minDistance + " meters");
+        } else {
+            System.out.println("[JOSM Assist] PolygonClickHandler: No way found matching criteria");
+        }
+
+        return nearestWay;
+    }
+
+    /**
+     * Calculates the minimum distance from a node to a way in meters.
+     * @param node the node (point) to measure from
+     * @param way the way to measure to
+     * @return the distance in meters, or NaN if calculation fails
+     */
+    private double calculateDistanceToWay(Node node, Way way) {
+        if (way == null || way.getNodes() == null || way.getNodes().isEmpty()) {
+            return Double.NaN;
+        }
+
+        try {
+            // Use Geometry.getDistance which returns distance in meters
+            double distance = Geometry.getDistance(node, way);
+            if (!Double.isNaN(distance) && distance != Double.MAX_VALUE) {
+                return distance;
+            }
+        } catch (Exception e) {
+            // Fallback: calculate distance to nearest node of the way
+        }
+
+        // Fallback: find minimum distance to any node in the way
+        double minDist = Double.MAX_VALUE;
+        for (Node wayNode : way.getNodes()) {
+            if (wayNode != null && wayNode.getCoor() != null) {
+                double dist = node.getCoor().greatCircleDistance(wayNode.getCoor());
+                if (!Double.isNaN(dist) && dist < minDist) {
+                    minDist = dist;
+                }
+            }
+        }
+
+        return (minDist == Double.MAX_VALUE) ? Double.NaN : minDist;
+    }
+
+    /**
+     * Focuses on the "name" tag field in the properties dialog and optionally pastes text.
+     * @param propDialog the properties dialog object
+     * @param nameToPaste the name to paste into the editor (if any)
+     */
+    private void focusOnNameField(Object propDialog, String nameToPaste) {
+        System.out.println("[JOSM Assist] PolygonClickHandler: focusOnNameField called with nameToPaste: '" + nameToPaste + "'");
         try {
             // Find the tag table and select the name row
             java.lang.reflect.Field tagTableField = propDialog.getClass().getDeclaredField("tagTable");
@@ -202,23 +354,30 @@ public class PolygonClickHandler {
             if (tagTable instanceof javax.swing.JTable) {
                 javax.swing.JTable table = (javax.swing.JTable) tagTable;
                 int rowCount = table.getRowCount();
+                System.out.println("[JOSM Assist] PolygonClickHandler: Tag table found with " + rowCount + " rows");
                 
                 // Find the "name" row
                 for (int i = 0; i < rowCount; i++) {
                     Object keyValue = table.getValueAt(i, 0);
                     if (keyValue != null && "name".equalsIgnoreCase(keyValue.toString())) {
+                        System.out.println("[JOSM Assist] PolygonClickHandler: Found 'name' row at index " + i);
                         // Select the row and value column
                         table.setRowSelectionInterval(i, i);
                         table.setColumnSelectionInterval(1, 1);
                         table.scrollRectToVisible(table.getCellRect(i, 1, true));
                         table.requestFocus();
                         
-                        // Start editing with Alt+S keyboard shortcut
+                        // Start editing with Alt+S keyboard shortcut, then paste if name provided
+                        final String nameToPasteFinal = nameToPaste;
                         javax.swing.SwingUtilities.invokeLater(() -> {
                             try {
+                                System.out.println("[JOSM Assist] PolygonClickHandler: Starting paste sequence, nameToPaste: '" + nameToPasteFinal + "'");
                                 Thread.sleep(100); // Small delay to ensure selection is processed
                                 java.awt.Robot robot = new java.awt.Robot();
                                 robot.setAutoDelay(10);
+                                
+                                // Start editing with Alt+S
+                                System.out.println("[JOSM Assist] PolygonClickHandler: Pressing Alt+S to start editing...");
                                 robot.keyPress(java.awt.event.KeyEvent.VK_ALT);
                                 Thread.sleep(10);
                                 robot.keyPress(java.awt.event.KeyEvent.VK_S);
@@ -226,18 +385,70 @@ public class PolygonClickHandler {
                                 robot.keyRelease(java.awt.event.KeyEvent.VK_S);
                                 Thread.sleep(10);
                                 robot.keyRelease(java.awt.event.KeyEvent.VK_ALT);
+                                
+                                // If we have a name to paste, wait a bit for editor to open then paste
+                                if (nameToPasteFinal != null && !nameToPasteFinal.isEmpty()) {
+                                    System.out.println("[JOSM Assist] PolygonClickHandler: Preparing to paste text: '" + nameToPasteFinal + "'");
+                                    Thread.sleep(150); // Wait for editor to be ready
+                                    
+                                    // Press Tab to move to value column if we're in key column
+                                    System.out.println("[JOSM Assist] PolygonClickHandler: Pressing Tab to move to value column...");
+                                    robot.keyPress(java.awt.event.KeyEvent.VK_TAB);
+                                    Thread.sleep(10);
+                                    robot.keyRelease(java.awt.event.KeyEvent.VK_TAB);
+                                    Thread.sleep(50);
+                                    
+                                    // Select all existing text (Ctrl+A) then paste
+                                    System.out.println("[JOSM Assist] PolygonClickHandler: Selecting all text (Ctrl+A)...");
+                                    robot.keyPress(java.awt.event.KeyEvent.VK_CONTROL);
+                                    Thread.sleep(10);
+                                    robot.keyPress(java.awt.event.KeyEvent.VK_A);
+                                    Thread.sleep(10);
+                                    robot.keyRelease(java.awt.event.KeyEvent.VK_A);
+                                    Thread.sleep(10);
+                                    robot.keyRelease(java.awt.event.KeyEvent.VK_CONTROL);
+                                    Thread.sleep(50);
+                                    
+                                    // Copy name to clipboard and paste
+                                    System.out.println("[JOSM Assist] PolygonClickHandler: Copying to clipboard: '" + nameToPasteFinal + "'");
+                                    java.awt.datatransfer.StringSelection stringSelection = 
+                                        new java.awt.datatransfer.StringSelection(nameToPasteFinal);
+                                    java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
+                                        .setContents(stringSelection, null);
+                                    
+                                    Thread.sleep(50);
+                                    
+                                    // Paste (Ctrl+V)
+                                    System.out.println("[JOSM Assist] PolygonClickHandler: Pasting (Ctrl+V)...");
+                                    robot.keyPress(java.awt.event.KeyEvent.VK_CONTROL);
+                                    Thread.sleep(10);
+                                    robot.keyPress(java.awt.event.KeyEvent.VK_V);
+                                    Thread.sleep(10);
+                                    robot.keyRelease(java.awt.event.KeyEvent.VK_V);
+                                    Thread.sleep(10);
+                                    robot.keyRelease(java.awt.event.KeyEvent.VK_CONTROL);
+                                    System.out.println("[JOSM Assist] PolygonClickHandler: Paste sequence completed");
+                                } else {
+                                    System.out.println("[JOSM Assist] PolygonClickHandler: No name to paste, skipping paste operation");
+                                }
                             } catch (InterruptedException e) {
                                 Thread.currentThread().interrupt();
+                                System.out.println("[JOSM Assist] PolygonClickHandler: Paste sequence interrupted");
                             } catch (Exception e) {
-                                // Ignore if Alt+S simulation fails
+                                System.out.println("[JOSM Assist] PolygonClickHandler: Exception during paste sequence: " + e.getMessage());
+                                e.printStackTrace();
                             }
                         });
                         return;
                     }
                 }
+                System.out.println("[JOSM Assist] PolygonClickHandler: 'name' row not found in tag table");
+            } else {
+                System.out.println("[JOSM Assist] PolygonClickHandler: Tag table is not a JTable");
             }
         } catch (Exception e) {
-            // Ignore if name field focusing fails
+            System.out.println("[JOSM Assist] PolygonClickHandler: Exception in focusOnNameField: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 }

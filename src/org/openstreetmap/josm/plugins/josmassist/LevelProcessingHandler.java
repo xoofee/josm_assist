@@ -322,6 +322,15 @@ public class LevelProcessingHandler implements ActiveLayerChangeListener, DataSe
         return currentLevelTag;
     }
 
+    /**
+     * Gets the current level tag, ensuring it's up-to-date by updating first.
+     * @return the current level tag, or null if no level is detected
+     */
+    public String getCurrentLevelTagWithUpdate() {
+        updateCurrentLevelTag();
+        return currentLevelTag;
+    }
+
     public void setCurrentLevelTag(String levelTag) {
         this.currentLevelTag = levelTag;
     }
