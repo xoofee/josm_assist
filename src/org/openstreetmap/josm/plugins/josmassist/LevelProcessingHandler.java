@@ -1,12 +1,15 @@
 package org.openstreetmap.josm.plugins.josmassist;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
 import org.openstreetmap.josm.data.osm.DataSet;
+import org.openstreetmap.josm.data.osm.Node;
 import org.openstreetmap.josm.data.osm.OsmPrimitive;
+import org.openstreetmap.josm.data.osm.Way;
 import org.openstreetmap.josm.data.osm.event.DataSetListener;
 import org.openstreetmap.josm.data.osm.event.DatasetEventManager;
 import org.openstreetmap.josm.data.osm.event.DatasetEventManager.FireMode;
@@ -392,17 +395,55 @@ public class LevelProcessingHandler implements ActiveLayerChangeListener, DataSe
             return;
         }
 
-        // Assign level tag to all tracked new elements
-        // These should only be primitives that were added via primitivesAdded events
+        // Separate nodes and ways from tracked elements
+        List<Node> trackedNodes = new ArrayList<>();
+        List<Way> trackedWays = new ArrayList<>();
+        for (OsmPrimitive prim : newElements) {
+            if (prim instanceof Node && prim.getDataSet() == ds && prim.isNew() && prim.get("level") == null) {
+                trackedNodes.add((Node) prim);
+            } else if (prim instanceof Way && prim.getDataSet() == ds && prim.isNew() && prim.get("level") == null) {
+                trackedWays.add((Way) prim);
+            }
+        }
+        
+        // Decision logic:
+        // - If exactly 1 node and no ways: assign level to that single node
+        // - Otherwise: only assign level to ways (not to nodes)
+        boolean assignToSingleNode = (trackedNodes.size() == 1 && trackedWays.isEmpty());
+        
+        System.out.println("[JOSM Assist] DEBUG: Processing - " + trackedNodes.size() + " node(s), " + trackedWays.size() + " way(s)");
+        System.out.println("[JOSM Assist] DEBUG: Assign to single node mode: " + assignToSingleNode);
+        
+        // Assign level tag to tracked new elements
         int assignedCount = 0;
         Set<OsmPrimitive> toRemove = new HashSet<>();
+        
         for (OsmPrimitive prim : newElements) {
             // Double-check: only assign to primitives that are still new and in the correct dataset
             if (prim.getDataSet() == ds && prim.isNew() && prim.get("level") == null) {
-                prim.put("level", currentLevelTag);
-                assignedCount++;
-                System.out.println("[JOSM Assist] DEBUG: Assigned level tag '" + currentLevelTag + "' to newly created: " + prim);
-                toRemove.add(prim);
+                boolean shouldAssign = false;
+                
+                if (prim instanceof Node) {
+                    // Only assign to node if it's the single node case
+                    if (assignToSingleNode) {
+                        shouldAssign = true;
+                    } else {
+                        System.out.println("[JOSM Assist] DEBUG: Skipping node " + prim + " - not in single-node mode");
+                    }
+                } else if (prim instanceof Way) {
+                    // Always assign to ways
+                    shouldAssign = true;
+                } else {
+                    // Relations or other types - assign if they're new
+                    shouldAssign = true;
+                }
+                
+                if (shouldAssign) {
+                    prim.put("level", currentLevelTag);
+                    assignedCount++;
+                    System.out.println("[JOSM Assist] DEBUG: Assigned level tag '" + currentLevelTag + "' to newly created: " + prim);
+                    toRemove.add(prim);
+                }
             } else if (prim.getDataSet() != ds) {
                 // Element is from different dataset, remove from tracking
                 toRemove.add(prim);
@@ -417,7 +458,8 @@ public class LevelProcessingHandler implements ActiveLayerChangeListener, DataSe
             }
         }
         
-        newElements.removeAll(toRemove);
+        newElements.clear();
+        // newElements.removeAll(toRemove);
         System.out.println("[JOSM Assist] DEBUG: Assigned level tag to " + assignedCount + " newly created element(s)");
         
         // Update the map display
