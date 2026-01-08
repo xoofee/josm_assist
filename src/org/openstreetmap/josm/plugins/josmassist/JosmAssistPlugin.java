@@ -153,7 +153,7 @@ public class JosmAssistPlugin extends Plugin {
 
         public TogglePluginAction() {
             super(tr("Toggle JOSM Assist"), 
-                    new ImageProvider("mapmode", "select").setMaxSize(org.openstreetmap.josm.tools.ImageProvider.ImageSizes.TOOLBAR),
+                    new ImageProvider("presets/vehicle/parking/parking_space").setOptional(true).setMaxSize(org.openstreetmap.josm.tools.ImageProvider.ImageSizes.TOOLBAR),
                     tr("Enable/disable JOSM Assist plugin features"),
                     Shortcut.registerShortcut("plugin:josmassist:toggle",
                             tr("Toggle JOSM Assist"), KeyEvent.VK_Z, Shortcut.ALT),
