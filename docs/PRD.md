@@ -110,3 +110,9 @@ remember to make the code modularized and easy to maintain.
 for the name interplation feature.
 the zero padding of number should be reserved.
 if the closest name is B3-023 and B3-021 and the selected way is in the middle, the new name should be B3-022, not B3-22
+
+## add tag verified=true
+add a short cut alt+V for add tag verified=true for selected elements. should do nothing when selection is empty
+
+the user should  be able to cancel this operation (say, by Ctrl + Z)
+remember to make the code modularized and easy to maintain.

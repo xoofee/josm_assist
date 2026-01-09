@@ -26,6 +26,7 @@ public class JosmAssistPlugin extends Plugin {
     private JosmAssistMapMode mapMode;
     private TogglePluginAction toggleAction;
     private WayCombineAction wayCombineAction;
+    private MarkVerifiedAction markVerifiedAction;
     private LevelProcessingHandler levelHandler;
     private EditModeExitListener editModeExitListener;
     private PolygonClickHandler clickHandler;
@@ -41,6 +42,7 @@ public class JosmAssistPlugin extends Plugin {
         // Initialize components
         toggleAction = new TogglePluginAction();
         wayCombineAction = new WayCombineAction();
+        markVerifiedAction = new MarkVerifiedAction();
         levelHandler = new LevelProcessingHandler();
         editModeExitListener = new EditModeExitListener(levelHandler);
         clickHandler = new PolygonClickHandler();
@@ -51,6 +53,7 @@ public class JosmAssistPlugin extends Plugin {
                 MainApplication.getMenu().toolsMenu.add(toggleAction);
                 MainApplication.getMenu().toolsMenu.addSeparator();
                 MainApplication.getMenu().toolsMenu.add(wayCombineAction);
+                MainApplication.getMenu().toolsMenu.add(markVerifiedAction);
             }
         } catch (Exception e) {
             System.err.println("Could not add menu item: " + e.getMessage());

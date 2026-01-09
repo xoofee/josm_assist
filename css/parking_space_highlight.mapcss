@@ -2,9 +2,9 @@
    Parking space name validation
    =============================== */
 
-*[amenity=parking_space][!name],
-*[amenity=parking_space][name=""],
-*[amenity=parking_space][name!~/^[A-Za-z0-9-]+$/] {
+*[amenity=parking_space][verified!="true"][!name],
+*[amenity=parking_space][verified!="true"][name=""],
+*[amenity=parking_space][verified!="true"][name!~/^[A-Za-z0-9-]+$/] {
     color: #00E5FF;          /* cyan, NOT selection red */
     width: 4;
     fill-color: #00E5FF;
@@ -12,4 +12,12 @@
     casing-color: white;    /* sharp edge on black bg */
     casing-width: 2;
     z-index: 10;
+}
+
+*[amenity=parking_space][verified="true"] {
+    color: #00FF0DFF;          /* green for verified (with alpha) */
+    width: 2;
+    casing-color: white;    /* sharp edge on black bg */
+    casing-width: 1;
+    z-index: 20;
 }
