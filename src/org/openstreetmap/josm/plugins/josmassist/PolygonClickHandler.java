@@ -278,6 +278,7 @@ public class PolygonClickHandler {
     
     /**
      * Finds the nearest way within the specified radius that has the same level and a name.
+     * First tries lateral search (7x width, 1x height area), then falls back to circular radius search.
      * Uses spatial indexing via DataSet.searchWays(BBox) for efficient search.
      * @param centerPoint the center point (polygon centroid)
      * @param excludeWay the way to exclude from search (the selected way)
@@ -287,15 +288,90 @@ public class PolygonClickHandler {
      * @return the nearest way with a name, or null if none found
      */
     private Way findNearestNamedWayInLevel(LatLon centerPoint, Way excludeWay, String level, DataSet ds, double radiusMeters) {
+        org.openstreetmap.josm.data.projection.Projection proj = 
+            org.openstreetmap.josm.data.projection.ProjectionRegistry.getProjection();
+        org.openstreetmap.josm.data.coor.EastNorth centerEN = proj.latlon2eastNorth(centerPoint);
+        Node centerNode = new Node(centerPoint);
+        
+        // Try lateral search first (for parking spaces)
+        OrientedBoundingBox obb = PolygonClickHandler.calculateOrientedBoundingBox(excludeWay);
+        if (obb != null) {
+            System.out.println("[JOSM Assist] PolygonClickHandler: Attempting lateral search first (7x width, 1x length)");
+            Way lateralResult = findNearestNamedWayInLevelLateral(centerPoint, centerEN, excludeWay, level, ds, radiusMeters, obb);
+            if (lateralResult != null) {
+                System.out.println("[JOSM Assist] PolygonClickHandler: Found way in lateral area");
+                return lateralResult;
+            }
+            System.out.println("[JOSM Assist] PolygonClickHandler: No way found in lateral area, falling back to circular search");
+        }
+        
+        // Fallback to original circular radius search
+        return findNearestNamedWayInLevelCircular(centerPoint, centerNode, excludeWay, level, ds, radiusMeters);
+    }
+    
+    /**
+     * Lateral search: finds nearest way within lateral area (7x width, 1x length).
+     * Only searches ways in the specified level (if level is provided).
+     */
+    private Way findNearestNamedWayInLevelLateral(LatLon centerPoint, org.openstreetmap.josm.data.coor.EastNorth centerEN,
+            Way excludeWay, String level, DataSet ds, double radiusMeters, OrientedBoundingBox obb) {
         Way nearestWay = null;
         double minDistance = Double.MAX_VALUE;
         Node centerNode = new Node(centerPoint);
+        
+        // DEBUG: Create debug polygon for lateral search area
+        // createDebugLateralSearchPolygon(obb, level, ds);
+        
+        // Create bounding box for lateral search area
+        BBox bbox = createLateralSearchBoundingBox(obb);
+        if (bbox == null) {
+            return null;
+        }
+        
+        List<Way> candidateWays = ds.searchWays(bbox);
+        System.out.println("[JOSM Assist] PolygonClickHandler: Lateral search found " + candidateWays.size() + " candidate ways");
+        
+        for (Way way : candidateWays) {
+            if (way.equals(excludeWay)) continue;
+            
+            // Filter by level (if level is specified)
+            if (!matchesLevel(way, level)) continue;
+            
+            // Filter by name
+            if (!hasName(way)) continue;
+            
+            // Check if way's centroid is within lateral area
+            org.openstreetmap.josm.data.coor.EastNorth wayCentroidEN = 
+                org.openstreetmap.josm.tools.Geometry.getCentroid(way.getNodes());
+            if (wayCentroidEN == null) continue;
+            
+            if (!isPointInLateralArea(wayCentroidEN, obb)) {
+                continue; // Skip if centroid is not in lateral area
+            }
+            
+            // Calculate distance
+            double distance = calculateDistanceToWay(centerNode, way);
+            if (!Double.isNaN(distance) && distance <= radiusMeters && distance < minDistance) {
+                minDistance = distance;
+                nearestWay = way;
+            }
+        }
+        
+        return nearestWay;
+    }
+    
+    /**
+     * Circular search: original method using circular radius.
+     */
+    private Way findNearestNamedWayInLevelCircular(LatLon centerPoint, Node centerNode,
+            Way excludeWay, String level, DataSet ds, double radiusMeters) {
+        Way nearestWay = null;
+        double minDistance = Double.MAX_VALUE;
         int sameLevelWays = 0;
         int namedWays = 0;
         int withinRadiusWays = 0;
 
         // Create bounding box around center point with radius
-        // Use JOSM's projection system for accurate conversion
         org.openstreetmap.josm.data.projection.Projection proj = 
             org.openstreetmap.josm.data.projection.ProjectionRegistry.getProjection();
         org.openstreetmap.josm.data.coor.EastNorth centerEN = proj.latlon2eastNorth(centerPoint);
@@ -318,18 +394,16 @@ public class PolygonClickHandler {
         LatLon maxLL = proj.eastNorth2latlon(maxEN);
         
         // Create BBox from LatLon bounds
-        // BBox has a constructor that takes a Way, so we create a temporary way with nodes
-        // at the bounding box corners
         Node minNode = new Node(minLL);
         Node maxNode = new Node(maxLL);
         Node centerNode1 = new Node(centerPoint);
         Way tempWay = new Way();
         tempWay.addNode(minNode);
         tempWay.addNode(maxNode);
-        tempWay.addNode(centerNode1); // Add center to ensure it's included
+        tempWay.addNode(centerNode1);
         BBox bbox = new BBox(tempWay);
         
-        System.out.println("[JOSM Assist] PolygonClickHandler: Searching in bounding box around center: " + centerPoint);
+        System.out.println("[JOSM Assist] PolygonClickHandler: Circular search in bounding box around center: " + centerPoint);
 
         // Use spatial indexing to search only ways within the bounding box
         List<Way> candidateWays = ds.searchWays(bbox);
@@ -341,19 +415,19 @@ public class PolygonClickHandler {
                 continue;
             }
 
-            // Check if way has the same level
-            String wayLevel = way.get("level");
-            if (wayLevel == null || !wayLevel.equals(level)) {
+            // Filter by level (if level is specified)
+            if (!matchesLevel(way, level)) {
                 continue;
             }
             sameLevelWays++;
 
-            // Check if way has a name
-            String wayName = way.get("name");
-            if (wayName == null || wayName.isEmpty()) {
+            // Filter by name
+            if (!hasName(way)) {
                 continue;
             }
             namedWays++;
+            
+            String wayName = way.get("name");
 
             // Calculate distance from center point to way
             double distance = calculateDistanceToWay(centerNode, way);
@@ -415,6 +489,302 @@ public class PolygonClickHandler {
         }
 
         return (minDist == Double.MAX_VALUE) ? Double.NaN : minDist;
+    }
+    
+    /**
+     * Helper class to store oriented bounding box information.
+     * For parking spaces: width = shorter (lateral, ~9 ft), length = longer (depth, ~18-20 ft).
+     */
+    private static class OrientedBoundingBox {
+        final double width;      // Shorter dimension (lateral, parallel to driving aisle)
+        final double length;     // Longer dimension (depth, perpendicular to aisle)
+        final org.openstreetmap.josm.data.coor.EastNorth center;  // Center point
+        final org.openstreetmap.josm.data.coor.EastNorth widthDir; // Unit vector along width direction (lateral)
+        final org.openstreetmap.josm.data.coor.EastNorth lengthDir; // Unit vector along length direction (depth)
+        
+        OrientedBoundingBox(double width, double length,
+                org.openstreetmap.josm.data.coor.EastNorth center,
+                org.openstreetmap.josm.data.coor.EastNorth widthDir,
+                org.openstreetmap.josm.data.coor.EastNorth lengthDir) {
+            this.width = width;
+            this.length = length;
+            this.center = center;
+            this.widthDir = widthDir;
+            this.lengthDir = lengthDir;
+        }
+    }
+    
+    /**
+     * Calculates the oriented bounding box of a parking space (rectangle).
+     * Returns width (shorter dimension, lateral) and length (longer dimension, depth).
+     * @param way the polygon way
+     * @return oriented bounding box info, or null if calculation fails
+     */
+    private static OrientedBoundingBox calculateOrientedBoundingBox(Way way) {
+        if (way == null || way.getNodes() == null || way.getNodes().size() < 3) {
+            return null;
+        }
+        
+        org.openstreetmap.josm.data.projection.Projection proj = 
+            org.openstreetmap.josm.data.projection.ProjectionRegistry.getProjection();
+        
+        // Convert nodes to EastNorth coordinates
+        List<org.openstreetmap.josm.data.coor.EastNorth> points = new ArrayList<>();
+        for (Node node : way.getNodes()) {
+            if (node.getCoor() != null) {
+                org.openstreetmap.josm.data.coor.EastNorth en = proj.latlon2eastNorth(node.getCoor());
+                if (en != null) {
+                    points.add(en);
+                }
+            }
+        }
+        
+        if (points.size() < 3) {
+            return null;
+        }
+        
+        // Calculate centroid
+        org.openstreetmap.josm.data.coor.EastNorth centroid = 
+            org.openstreetmap.josm.tools.Geometry.getCentroid(way.getNodes());
+        if (centroid == null) {
+            return null;
+        }
+        
+        // For a rectangle (parking space), compare the first two edges
+        // Width = shorter edge (lateral, ~9 ft, parallel to driving aisle)
+        // Length = longer edge (depth, ~18-20 ft, perpendicular to aisle)
+        if (points.size() < 4) {
+            return null; // Need at least 4 points for a rectangle
+        }
+        
+        // First edge: from point 0 to point 1
+        org.openstreetmap.josm.data.coor.EastNorth edge1Start = points.get(0);
+        org.openstreetmap.josm.data.coor.EastNorth edge1End = points.get(1);
+        double edge1LenSq = edge1Start.distanceSq(edge1End);
+        double edge1Len = Math.sqrt(edge1LenSq);
+        
+        // Second edge: from point 1 to point 2
+        org.openstreetmap.josm.data.coor.EastNorth edge2Start = points.get(1);
+        org.openstreetmap.josm.data.coor.EastNorth edge2End = points.get(2);
+        double edge2LenSq = edge2Start.distanceSq(edge2End);
+        double edge2Len = Math.sqrt(edge2LenSq);
+        
+        if (edge1Len < 1e-10 || edge2Len < 1e-10) {
+            return null; // Invalid edges
+        }
+        
+        // Determine which edge is shorter (width) and which is longer (length)
+        double width, length;
+        org.openstreetmap.josm.data.coor.EastNorth widthDir, lengthDir;
+        
+        if (edge1Len <= edge2Len) {
+            // First edge is shorter (width - lateral)
+            width = edge1Len;
+            length = edge2Len;
+            // Width direction: from edge1Start to edge1End (lateral direction)
+            widthDir = new org.openstreetmap.josm.data.coor.EastNorth(
+                (edge1End.east() - edge1Start.east()) / edge1Len,
+                (edge1End.north() - edge1Start.north()) / edge1Len
+            );
+            // Length direction: from edge2Start to edge2End (depth direction)
+            lengthDir = new org.openstreetmap.josm.data.coor.EastNorth(
+                (edge2End.east() - edge2Start.east()) / edge2Len,
+                (edge2End.north() - edge2Start.north()) / edge2Len
+            );
+        } else {
+            // Second edge is shorter (width - lateral)
+            width = edge2Len;
+            length = edge1Len;
+            // Width direction: from edge2Start to edge2End (lateral direction)
+            widthDir = new org.openstreetmap.josm.data.coor.EastNorth(
+                (edge2End.east() - edge2Start.east()) / edge2Len,
+                (edge2End.north() - edge2Start.north()) / edge2Len
+            );
+            // Length direction: from edge1Start to edge1End (depth direction)
+            lengthDir = new org.openstreetmap.josm.data.coor.EastNorth(
+                (edge1End.east() - edge1Start.east()) / edge1Len,
+                (edge1End.north() - edge1Start.north()) / edge1Len
+            );
+        }
+        
+        return new OrientedBoundingBox(width, length, centroid, widthDir, lengthDir);
+    }
+    
+    /**
+     * Checks if a point (way centroid) is within the lateral search area.
+     * Lateral area is 7x width and 1x length of the selected polygon, centered on it.
+     * @param point the point to check (in EastNorth coordinates)
+     * @param obb the oriented bounding box of the selected polygon
+     * @return true if the point is within the lateral search area
+     */
+    private static boolean isPointInLateralArea(org.openstreetmap.josm.data.coor.EastNorth point, OrientedBoundingBox obb) {
+        if (obb == null || point == null) {
+            return false;
+        }
+        
+        // Calculate vector from obb center to point
+        double dx = point.east() - obb.center.east();
+        double dy = point.north() - obb.center.north();
+        
+        // Project onto width and length directions
+        double projWidth = dx * obb.widthDir.east() + dy * obb.widthDir.north();
+        double projLength = dx * obb.lengthDir.east() + dy * obb.lengthDir.north();
+        
+        // Check if within lateral area: 7x width (lateral), 1x length (depth)
+        double lateralWidth = obb.width * 3.5;  // Half of 7x width
+        double lateralLength = obb.length * 0.5;  // Half of 1x length
+        
+        return Math.abs(projWidth) <= lateralWidth && Math.abs(projLength) <= lateralLength;
+    }
+    
+    /**
+     * Creates a bounding box that encompasses the lateral search area.
+     * Lateral area is 7x width and 1x length of the selected polygon.
+     * @param obb the oriented bounding box of the selected polygon
+     * @return a BBox that encompasses the lateral search area, or null if calculation fails
+     */
+    private static BBox createLateralSearchBoundingBox(OrientedBoundingBox obb) {
+        if (obb == null) {
+            return null;
+        }
+        
+        // Lateral area extends 3.5x width in each direction along width axis (lateral), 0.5x length in each direction along length axis (depth)
+        double lateralWidthHalf = obb.width * 3.5;
+        double lateralLengthHalf = obb.length * 0.5;
+        
+        // Calculate corners of lateral area bounding box
+        org.openstreetmap.josm.data.coor.EastNorth corner1 = new org.openstreetmap.josm.data.coor.EastNorth(
+            obb.center.east() - lateralWidthHalf * obb.widthDir.east() - lateralLengthHalf * obb.lengthDir.east(),
+            obb.center.north() - lateralWidthHalf * obb.widthDir.north() - lateralLengthHalf * obb.lengthDir.north()
+        );
+        org.openstreetmap.josm.data.coor.EastNorth corner2 = new org.openstreetmap.josm.data.coor.EastNorth(
+            obb.center.east() + lateralWidthHalf * obb.widthDir.east() - lateralLengthHalf * obb.lengthDir.east(),
+            obb.center.north() + lateralWidthHalf * obb.widthDir.north() - lateralLengthHalf * obb.lengthDir.north()
+        );
+        org.openstreetmap.josm.data.coor.EastNorth corner3 = new org.openstreetmap.josm.data.coor.EastNorth(
+            obb.center.east() + lateralWidthHalf * obb.widthDir.east() + lateralLengthHalf * obb.lengthDir.east(),
+            obb.center.north() + lateralWidthHalf * obb.widthDir.north() + lateralLengthHalf * obb.lengthDir.north()
+        );
+        org.openstreetmap.josm.data.coor.EastNorth corner4 = new org.openstreetmap.josm.data.coor.EastNorth(
+            obb.center.east() - lateralWidthHalf * obb.widthDir.east() + lateralLengthHalf * obb.lengthDir.east(),
+            obb.center.north() - lateralWidthHalf * obb.widthDir.north() + lateralLengthHalf * obb.lengthDir.north()
+        );
+        
+        // Create bounding box from corners
+        org.openstreetmap.josm.data.projection.Projection proj = 
+            org.openstreetmap.josm.data.projection.ProjectionRegistry.getProjection();
+        LatLon ll1 = proj.eastNorth2latlon(corner1);
+        LatLon ll2 = proj.eastNorth2latlon(corner2);
+        LatLon ll3 = proj.eastNorth2latlon(corner3);
+        LatLon ll4 = proj.eastNorth2latlon(corner4);
+        
+        Way tempWay = new Way();
+        tempWay.addNode(new Node(ll1));
+        tempWay.addNode(new Node(ll2));
+        tempWay.addNode(new Node(ll3));
+        tempWay.addNode(new Node(ll4));
+        
+        return new BBox(tempWay);
+    }
+    
+    /**
+     * Checks if a way matches the level filter.
+     * @param way the way to check
+     * @param level the level to match (null means no level filtering)
+     * @return true if the way matches the level (or level is null)
+     */
+    private static boolean matchesLevel(Way way, String level) {
+        if (level == null || level.isEmpty()) {
+            return true; // No level filtering
+        }
+        String wayLevel = way.get("level");
+        return wayLevel != null && wayLevel.equals(level);
+    }
+    
+    /**
+     * Checks if a way has a name.
+     * @param way the way to check
+     * @return true if the way has a non-empty name
+     */
+    private static boolean hasName(Way way) {
+        String wayName = way.get("name");
+        return wayName != null && !wayName.isEmpty();
+    }
+    
+    /**
+     * Creates a debug polygon for the lateral search area.
+     * This is for debugging purposes only - can be removed/commented out later.
+     * @param obb the oriented bounding box
+     * @param level the level tag to add (if not null)
+     * @param ds the dataset to add the polygon to
+     */
+    private static void createDebugLateralSearchPolygon(OrientedBoundingBox obb, String level, DataSet ds) {
+        if (obb == null || ds == null) {
+            return;
+        }
+        
+        // Calculate corners of lateral area
+        double lateralWidthHalf = obb.width * 3.5;
+        double lateralLengthHalf = obb.length * 0.5;
+        
+        org.openstreetmap.josm.data.coor.EastNorth corner1 = new org.openstreetmap.josm.data.coor.EastNorth(
+            obb.center.east() - lateralWidthHalf * obb.widthDir.east() - lateralLengthHalf * obb.lengthDir.east(),
+            obb.center.north() - lateralWidthHalf * obb.widthDir.north() - lateralLengthHalf * obb.lengthDir.north()
+        );
+        org.openstreetmap.josm.data.coor.EastNorth corner2 = new org.openstreetmap.josm.data.coor.EastNorth(
+            obb.center.east() + lateralWidthHalf * obb.widthDir.east() - lateralLengthHalf * obb.lengthDir.east(),
+            obb.center.north() + lateralWidthHalf * obb.widthDir.north() - lateralLengthHalf * obb.lengthDir.north()
+        );
+        org.openstreetmap.josm.data.coor.EastNorth corner3 = new org.openstreetmap.josm.data.coor.EastNorth(
+            obb.center.east() + lateralWidthHalf * obb.widthDir.east() + lateralLengthHalf * obb.lengthDir.east(),
+            obb.center.north() + lateralWidthHalf * obb.widthDir.north() + lateralLengthHalf * obb.lengthDir.north()
+        );
+        org.openstreetmap.josm.data.coor.EastNorth corner4 = new org.openstreetmap.josm.data.coor.EastNorth(
+            obb.center.east() - lateralWidthHalf * obb.widthDir.east() + lateralLengthHalf * obb.lengthDir.east(),
+            obb.center.north() - lateralWidthHalf * obb.widthDir.north() + lateralLengthHalf * obb.lengthDir.north()
+        );
+        
+        // Convert to LatLon
+        org.openstreetmap.josm.data.projection.Projection proj = 
+            org.openstreetmap.josm.data.projection.ProjectionRegistry.getProjection();
+        LatLon ll1 = proj.eastNorth2latlon(corner1);
+        LatLon ll2 = proj.eastNorth2latlon(corner2);
+        LatLon ll3 = proj.eastNorth2latlon(corner3);
+        LatLon ll4 = proj.eastNorth2latlon(corner4);
+        
+        // Create nodes
+        Node node1 = new Node(ll1);
+        Node node2 = new Node(ll2);
+        Node node3 = new Node(ll3);
+        Node node4 = new Node(ll4);
+        
+        // Add nodes to dataset
+        ds.addPrimitive(node1);
+        ds.addPrimitive(node2);
+        ds.addPrimitive(node3);
+        ds.addPrimitive(node4);
+        
+        // Create closed way (polygon)
+        Way debugPolygon = new Way();
+        debugPolygon.addNode(node1);
+        debugPolygon.addNode(node2);
+        debugPolygon.addNode(node3);
+        debugPolygon.addNode(node4);
+        debugPolygon.addNode(node1); // Close the polygon
+        
+        // Add debug tags
+        debugPolygon.put("josm_assist_debug", "lateral_search_area");
+        debugPolygon.put("note", "DEBUG: Lateral search area (7x width, 1x length)");
+        
+        // Add level tag if level is selected
+        if (level != null && !level.isEmpty()) {
+            debugPolygon.put("level", level);
+        }
+        
+        // Add to dataset
+        ds.addPrimitive(debugPolygon);
+        
+        System.out.println("[JOSM Assist] PolygonClickHandler: Created debug lateral search polygon with level: " + level);
     }
 
     /**
@@ -600,6 +970,9 @@ public class PolygonClickHandler {
             
             // Calculate spatial relationships
             SpatialRelationship spatial = calculateSpatialRelationship(selectedWay, centerPoint, wayA.way, wayB.way);
+            System.out.println("[JOSM Assist] NameInterpolator: Spatial relationship - isBetween=" + spatial.isBetween + 
+                ", ordering=" + spatial.ordering + " (ordering: -1=P-A-B, 0=A-P-B, 1=A-B-P)");
+            
             
             if (diff == 2) {
                 // If difference is 2, check if P is between A and B
@@ -616,21 +989,15 @@ public class PolygonClickHandler {
                     return null; // Fall back to nearest
                 }
             } else if (diff == 1) {
-                // If difference is 1
-                if (spatial.isMiddle) {
-                    System.out.println("[JOSM Assist] NameInterpolator: Difference=1, P is in middle, using nearest");
-                    return null; // Fall back to nearest
-                } else {
-                    // Infer from relative position
-                    int interpolatedNumber = inferNumberFromPosition(partsA, partsB, spatial);
-                    if (interpolatedNumber > 0) {
-                        // Use the maximum padding width to preserve zero padding
-                        int paddingWidth = Math.max(partsA.paddingWidth, partsB.paddingWidth);
-                        String formattedNumber = String.format("%0" + paddingWidth + "d", interpolatedNumber);
-                        String interpolatedName = partsA.prefix + formattedNumber;
-                        System.out.println("[JOSM Assist] NameInterpolator: Difference=1, inferred from position: '" + interpolatedName + "'");
-                        return interpolatedName;
-                    }
+                // If difference is 1, infer from relative position
+                int interpolatedNumber = inferNumberFromPosition(partsA, partsB, spatial);
+                if (interpolatedNumber > 0) {
+                    // Use the maximum padding width to preserve zero padding
+                    int paddingWidth = Math.max(partsA.paddingWidth, partsB.paddingWidth);
+                    String formattedNumber = String.format("%0" + paddingWidth + "d", interpolatedNumber);
+                    String interpolatedName = partsA.prefix + formattedNumber;
+                    System.out.println("[JOSM Assist] NameInterpolator: Difference=1, inferred from position: '" + interpolatedName + "'");
+                    return interpolatedName;
                 }
             } else if (diff >= 3) {
                 System.out.println("[JOSM Assist] NameInterpolator: Difference=" + diff + " (>=3), using nearest");
@@ -642,13 +1009,86 @@ public class PolygonClickHandler {
         
         /**
          * Finds adjacent ways with names within the search radius.
+         * First tries lateral search (7x width, 1x length area), then falls back to circular radius search.
          */
         private static List<AdjacentWay> findAdjacentNamedWays(Way selectedWay, LatLon centerPoint, String level, DataSet ds, double radiusMeters) {
+            // Try lateral search first (for parking spaces)
+            OrientedBoundingBox obb = PolygonClickHandler.calculateOrientedBoundingBox(selectedWay);
+            if (obb != null) {
+                System.out.println("[JOSM Assist] NameInterpolator: Attempting lateral search first (7x width, 1x length)");
+                List<AdjacentWay> lateralResult = findAdjacentNamedWaysLateral(selectedWay, centerPoint, level, ds, radiusMeters, obb);
+                if (lateralResult.size() >= 2) {
+                    System.out.println("[JOSM Assist] NameInterpolator: Found " + lateralResult.size() + " ways in lateral area");
+                    return lateralResult;
+                }
+                System.out.println("[JOSM Assist] NameInterpolator: Found " + lateralResult.size() + " ways in lateral area, falling back to circular search");
+            }
+            
+            // Fallback to original circular radius search
+            return findAdjacentNamedWaysCircular(selectedWay, centerPoint, level, ds, radiusMeters);
+        }
+        
+        /**
+         * Lateral search: finds adjacent ways within lateral area (7x width, 1x length).
+         * Only searches ways in the specified level (if level is provided).
+         */
+        private static List<AdjacentWay> findAdjacentNamedWaysLateral(Way selectedWay, LatLon centerPoint, String level,
+                DataSet ds, double radiusMeters, OrientedBoundingBox obb) {
+            List<AdjacentWay> adjacentWays = new ArrayList<>();
+            Node centerNode = new Node(centerPoint);
+            
+            // DEBUG: Create debug polygon for lateral search area
+            // PolygonClickHandler.createDebugLateralSearchPolygon(obb, level, ds);
+            
+            // Create bounding box for lateral search area
+            BBox bbox = PolygonClickHandler.createLateralSearchBoundingBox(obb);
+            if (bbox == null) {
+                return adjacentWays;
+            }
+            
+            List<Way> candidateWays = ds.searchWays(bbox);
+            System.out.println("[JOSM Assist] NameInterpolator: Lateral search found " + candidateWays.size() + " candidate ways");
+            
+            for (Way way : candidateWays) {
+                if (way.equals(selectedWay)) continue;
+                
+                // Filter by level (if level is specified)
+                if (!PolygonClickHandler.matchesLevel(way, level)) continue;
+                
+                // Filter by name
+                if (!PolygonClickHandler.hasName(way)) continue;
+                
+                // Check if way's centroid is within lateral area
+                org.openstreetmap.josm.data.coor.EastNorth wayCentroidEN = 
+                    org.openstreetmap.josm.tools.Geometry.getCentroid(way.getNodes());
+                if (wayCentroidEN == null) continue;
+                
+                if (!PolygonClickHandler.isPointInLateralArea(wayCentroidEN, obb)) {
+                    continue; // Skip if centroid is not in lateral area
+                }
+                
+                double distance = calculateDistanceToWayStatic(centerNode, way);
+                if (!Double.isNaN(distance) && distance <= radiusMeters) {
+                    String wayName = way.get("name");
+                    adjacentWays.add(new AdjacentWay(way, wayName, distance));
+                }
+            }
+            
+            // Sort by distance
+            adjacentWays.sort(Comparator.comparingDouble(a -> a.distance));
+            
+            return adjacentWays;
+        }
+        
+        /**
+         * Circular search: original method using circular radius.
+         */
+        private static List<AdjacentWay> findAdjacentNamedWaysCircular(Way selectedWay, LatLon centerPoint, String level, DataSet ds, double radiusMeters) {
             List<AdjacentWay> adjacentWays = new ArrayList<>();
             Node centerNode = new Node(centerPoint);
             
             // Create bounding box for spatial search
-            org.openstreetmap.josm.data.projection.Projection proj = 
+            org.openstreetmap.josm.data.projection.Projection proj =
                 org.openstreetmap.josm.data.projection.ProjectionRegistry.getProjection();
             org.openstreetmap.josm.data.coor.EastNorth centerEN = proj.latlon2eastNorth(centerPoint);
             double radiusInProjectionUnits = radiusMeters / proj.getMetersPerUnit();
@@ -675,11 +1115,13 @@ public class PolygonClickHandler {
             for (Way way : candidateWays) {
                 if (way.equals(selectedWay)) continue;
                 
-                String wayLevel = way.get("level");
-                if (wayLevel == null || !wayLevel.equals(level)) continue;
+                // Filter by level (if level is specified)
+                if (!PolygonClickHandler.matchesLevel(way, level)) continue;
+                
+                // Filter by name
+                if (!PolygonClickHandler.hasName(way)) continue;
                 
                 String wayName = way.get("name");
-                if (wayName == null || wayName.isEmpty()) continue;
                 
                 double distance = calculateDistanceToWayStatic(centerNode, way);
                 if (!Double.isNaN(distance) && distance <= radiusMeters) {
@@ -746,7 +1188,7 @@ public class PolygonClickHandler {
             org.openstreetmap.josm.data.coor.EastNorth centroidB = Geometry.getCentroid(wayB.getNodes());
             
             if (centroidA == null || centroidB == null) {
-                return new SpatialRelationship(false, false, 0);
+                return new SpatialRelationship(false, 0);
             }
             
             org.openstreetmap.josm.data.projection.Projection proj = 
@@ -759,26 +1201,25 @@ public class PolygonClickHandler {
             org.openstreetmap.josm.data.coor.EastNorth enA = proj.latlon2eastNorth(centerA);
             org.openstreetmap.josm.data.coor.EastNorth enB = proj.latlon2eastNorth(centerB);
             
-            // Check if P is between A and B (project P onto line segment AB)
-            boolean isBetween = isPointBetweenOnLine(enP, enA, enB);
-            
-            // Check if P is in the middle (approximately equidistant from A and B)
-            double distPA = enP.distance(enA);
-            double distPB = enP.distance(enB);
-            boolean isMiddle = Math.abs(distPA - distPB) < Math.min(distPA, distPB) * 0.2; // Within 20% of smaller distance
-            
-            // Determine ordering: -1 if A-B-P, 0 if A-P-B or B-P-A, 1 if P-A-B or P-B-A
+            // Determine ordering: -1 if P-A-B (P before), 0 if A-P-B (P between), 1 if A-B-P (P after)
             int ordering = determineOrdering(enP, enA, enB);
             
-            return new SpatialRelationship(isBetween, isMiddle, ordering);
+            // isBetween is true when ordering is 0 (P is between A and B) and P is close to the line
+            boolean isBetween = false;
+            if (ordering == 0) {
+                // Check if P is close to the line segment (within reasonable distance)
+                isBetween = isPointCloseToLineSegment(enP, enA, enB);
+            }
+            
+            return new SpatialRelationship(isBetween, ordering);
         }
         
         /**
-         * Checks if point P is between points A and B on the line segment.
+         * Checks if point P is close to the line segment AB (distance check only).
+         * Assumes that determineOrdering has already determined that ordering == 0.
          */
-        private static boolean isPointBetweenOnLine(org.openstreetmap.josm.data.coor.EastNorth p, 
+        private static boolean isPointCloseToLineSegment(org.openstreetmap.josm.data.coor.EastNorth p,
                 org.openstreetmap.josm.data.coor.EastNorth a, org.openstreetmap.josm.data.coor.EastNorth b) {
-            // Project P onto line AB
             double abLenSq = a.distanceSq(b);
             if (abLenSq == 0) return false; // A and B are the same point
             
@@ -787,23 +1228,22 @@ public class PolygonClickHandler {
             org.openstreetmap.josm.data.coor.EastNorth ap = new org.openstreetmap.josm.data.coor.EastNorth(
                 p.east() - a.east(), p.north() - a.north());
             
+            // Calculate parameter t: position of projection along AB
             double t = (ap.east() * ab.east() + ap.north() * ab.north()) / abLenSq;
             
-            // Check if projection is between A and B (0 <= t <= 1)
-            if (t < 0 || t > 1) return false;
-            
-            // Check if P is close to the line (within reasonable distance)
+            // Calculate projection point
             org.openstreetmap.josm.data.coor.EastNorth projection = new org.openstreetmap.josm.data.coor.EastNorth(
                 a.east() + t * ab.east(), a.north() + t * ab.north());
             double distToLine = p.distance(projection);
             double abLen = Math.sqrt(abLenSq);
             
-            // P is between if it's close to the line segment (within 10% of AB length)
+            // P is close if within 10% of AB length
             return distToLine < abLen * 0.1;
         }
         
         /**
-         * Determines spatial ordering: -1 if A-B-P, 0 if A-P-B, 1 if P-A-B or P-B-A.
+         * Determines spatial ordering: -1 if P-A-B (P before A), 0 if A-P-B (P between), 1 if A-B-P (P after B).
+         * Aligned with parameter t: negative t → -1, t > 1 → 1, 0 <= t <= 1 → 0.
          * Uses projection onto line segment AB to determine ordering accurately.
          */
         private static int determineOrdering(org.openstreetmap.josm.data.coor.EastNorth p,
@@ -829,12 +1269,13 @@ public class PolygonClickHandler {
             double t = (ap.east() * ab.east() + ap.north() * ab.north()) / abLenSq;
             
             // Determine ordering based on projection position
+            // Aligned with t: negative t → negative ordering (before), positive t > 1 → positive ordering (after)
             if (t < 0) {
-                // P projects before A: P-A-B (ordering = 1)
-                return 1;
-            } else if (t > 1) {
-                // P projects after B: A-B-P (ordering = -1)
+                // P projects before A: P-A-B (ordering = -1, meaning before/smaller)
                 return -1;
+            } else if (t > 1) {
+                // P projects after B: A-B-P (ordering = 1, meaning after/larger)
+                return 1;
             } else {
                 // P projects between A and B: A-P-B (ordering = 0)
                 return 0;
@@ -848,14 +1289,14 @@ public class PolygonClickHandler {
             int numA = partsA.number;
             int numB = partsB.number;
             
-            if (spatial.ordering == 1) {
-                // P-A-B or P-B-A: P is before both, so number should be smaller
+            if (spatial.ordering == -1) {
+                // P-A-B: P is before both, so number should be smaller
                 return Math.min(numA, numB) - 1;
-            } else if (spatial.ordering == -1) {
+            } else if (spatial.ordering == 1) {
                 // A-B-P: P is after both, so number should be larger
                 return Math.max(numA, numB) + 1;
             } else {
-                // A-P-B or B-P-A: P is between, but numbers differ by 1, so can't interpolate
+                // A-P-B: P is between, but numbers differ by 1, so can't interpolate
                 return -1;
             }
         }
@@ -925,12 +1366,10 @@ public class PolygonClickHandler {
          */
         private static class SpatialRelationship {
             final boolean isBetween;
-            final boolean isMiddle;
-            final int ordering; // -1: A-B-P, 0: A-P-B, 1: P-A-B
+            final int ordering; // -1: P-A-B (P before), 0: A-P-B (P between), 1: A-B-P (P after)
             
-            SpatialRelationship(boolean isBetween, boolean isMiddle, int ordering) {
+            SpatialRelationship(boolean isBetween, int ordering) {
                 this.isBetween = isBetween;
-                this.isMiddle = isMiddle;
                 this.ordering = ordering;
             }
         }

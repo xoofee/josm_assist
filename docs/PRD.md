@@ -127,3 +127,29 @@ add a short cut alt+V for add tag verified=true for selected elements. should do
 
 the user should  be able to cancel this operation (say, by Ctrl + Z)
 remember to make the code modularized and easy to maintain.
+
+## search laterally first
+
+the way name search interplolate is main for parking spaces. so
+1 calculating a laternal neighboor area of the selected parking space
+let S be selected parking space, P is the lateral area
+so we want to search in the area of all Ps
+PPPPSPPPP
+
+not longitudinal like this
+
+P
+P
+S
+P
+P
+
+because the parking lot number is common continuous laterally (not longitudinal)
+
+so: from the center of the S, determine an area of PPPSPPP, could use an 7x width and 1x height of S
+
+note the S is a rectangle, that is not necessarily aligned to the standard direction (e.g., may be 45 degree). so you should not use a simple range like (-3.5width + x， 3.5width +x)
+
+only ways that have center (of polygon) in this area should be including in the first name search and interpolation
+
+if no name found, then fall back to the original search method
