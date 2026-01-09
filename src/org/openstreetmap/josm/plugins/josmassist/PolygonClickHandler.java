@@ -188,6 +188,7 @@ public class PolygonClickHandler {
 
     /**
      * Finds all ways (closed polygons) that contain the given point.
+     * When a level is selected, only returns ways matching that level.
      * @param click the point to check
      * @param ds the dataset to search
      * @return list of containing ways
@@ -195,6 +196,11 @@ public class PolygonClickHandler {
     private List<Way> findAllContainingWays(LatLon click, DataSet ds) {
         List<Way> hits = new ArrayList<>();
         Node clickNode = new Node(click);
+        
+        // Get current level if one is selected
+        LevelProcessingHandler levelHandler = JosmAssistPlugin.getInstance().getLevelHandler();
+        String currentLevel = levelHandler != null ? levelHandler.getCurrentLevelTagWithUpdate() : null;
+        boolean levelFilterActive = currentLevel != null && !currentLevel.isEmpty();
 
         for (Way way : ds.getWays()) {
             if (!way.isClosed()) {
@@ -202,6 +208,16 @@ public class PolygonClickHandler {
             }
             if (!way.isArea()) {
                 continue;
+            }
+            
+            // Filter by level if a level is selected
+            if (levelFilterActive) {
+                String wayLevel = way.get("level");
+                // Only include ways that match the current level
+                // Ways without a level tag are excluded when level filtering is active
+                if (wayLevel == null || !wayLevel.equals(currentLevel)) {
+                    continue;
+                }
             }
 
             if (Geometry.nodeInsidePolygon(clickNode, way.getNodes())) {
