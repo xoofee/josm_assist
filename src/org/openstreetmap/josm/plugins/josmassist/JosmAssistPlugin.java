@@ -10,7 +10,6 @@ import javax.swing.JMenuItem;
 
 import org.openstreetmap.josm.actions.ToggleAction;
 import org.openstreetmap.josm.gui.MainApplication;
-import org.openstreetmap.josm.gui.MainMenu;
 import org.openstreetmap.josm.plugins.Plugin;
 import org.openstreetmap.josm.plugins.PluginInformation;
 import org.openstreetmap.josm.tools.ImageProvider;
@@ -26,6 +25,7 @@ public class JosmAssistPlugin extends Plugin {
     private boolean pluginEnabled = true;
     private JosmAssistMapMode mapMode;
     private TogglePluginAction toggleAction;
+    private WayCombineAction wayCombineAction;
     private LevelProcessingHandler levelHandler;
     private EditModeExitListener editModeExitListener;
     private PolygonClickHandler clickHandler;
@@ -40,23 +40,35 @@ public class JosmAssistPlugin extends Plugin {
         
         // Initialize components
         toggleAction = new TogglePluginAction();
+        wayCombineAction = new WayCombineAction();
         levelHandler = new LevelProcessingHandler();
         editModeExitListener = new EditModeExitListener(levelHandler);
         clickHandler = new PolygonClickHandler();
         
-        // Add toggle menu item to tools menu
+        // Add menu items to tools menu
         try {
             if (MainApplication.getMenu() != null && MainApplication.getMenu().toolsMenu != null) {
                 MainApplication.getMenu().toolsMenu.add(toggleAction);
+                MainApplication.getMenu().toolsMenu.addSeparator();
+                MainApplication.getMenu().toolsMenu.add(wayCombineAction);
             }
         } catch (Exception e) {
             System.err.println("Could not add menu item: " + e.getMessage());
         }
         
-        // Register toolbar button
+        // Register toolbar buttons
         try {
             if (MainApplication.getToolbar() != null) {
                 MainApplication.getToolbar().register(toggleAction);
+                MainApplication.getToolbar().register(wayCombineAction);
+                // Refresh toolbar to make buttons visible
+                javax.swing.SwingUtilities.invokeLater(() -> {
+                    try {
+                        MainApplication.getToolbar().refreshToolbarControl();
+                    } catch (Exception ex) {
+                        // Ignore refresh errors
+                    }
+                });
             }
         } catch (Exception e) {
             System.err.println("Could not register toolbar button: " + e.getMessage());

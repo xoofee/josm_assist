@@ -576,7 +576,10 @@ public class PolygonClickHandler {
                 // If difference is 2, check if P is between A and B
                 if (spatial.isBetween) {
                     int interpolatedNumber = (partsA.number + partsB.number) / 2;
-                    String interpolatedName = partsA.prefix + interpolatedNumber;
+                    // Use the maximum padding width to preserve zero padding
+                    int paddingWidth = Math.max(partsA.paddingWidth, partsB.paddingWidth);
+                    String formattedNumber = String.format("%0" + paddingWidth + "d", interpolatedNumber);
+                    String interpolatedName = partsA.prefix + formattedNumber;
                     System.out.println("[JOSM Assist] NameInterpolator: Difference=2, P is between A and B, interpolated: '" + interpolatedName + "'");
                     return interpolatedName;
                 } else {
@@ -592,7 +595,10 @@ public class PolygonClickHandler {
                     // Infer from relative position
                     int interpolatedNumber = inferNumberFromPosition(partsA, partsB, spatial);
                     if (interpolatedNumber > 0) {
-                        String interpolatedName = partsA.prefix + interpolatedNumber;
+                        // Use the maximum padding width to preserve zero padding
+                        int paddingWidth = Math.max(partsA.paddingWidth, partsB.paddingWidth);
+                        String formattedNumber = String.format("%0" + paddingWidth + "d", interpolatedNumber);
+                        String interpolatedName = partsA.prefix + formattedNumber;
                         System.out.println("[JOSM Assist] NameInterpolator: Difference=1, inferred from position: '" + interpolatedName + "'");
                         return interpolatedName;
                     }
@@ -669,8 +675,9 @@ public class PolygonClickHandler {
         
         /**
          * Extracts prefix and trailing digits from a name.
-         * E.g., "A301" -> prefix="A", number=301
-         *       "B3-239" -> prefix="B3-", number=239
+         * E.g., "A301" -> prefix="A", number=301, paddingWidth=3
+         *       "B3-239" -> prefix="B3-", number=239, paddingWidth=3
+         *       "B3-023" -> prefix="B3-", number=23, paddingWidth=3 (preserves zero padding)
          */
         private static NameParts extractNameParts(String name) {
             if (name == null || name.isEmpty()) return null;
@@ -692,8 +699,10 @@ public class PolygonClickHandler {
             
             try {
                 String prefix = name.substring(0, lastDigitIndex);
-                int number = Integer.parseInt(name.substring(lastDigitIndex));
-                return new NameParts(prefix, number);
+                String trailingDigits = name.substring(lastDigitIndex);
+                int number = Integer.parseInt(trailingDigits);
+                int paddingWidth = trailingDigits.length(); // Preserve the original digit count (including leading zeros)
+                return new NameParts(prefix, number, paddingWidth);
             } catch (NumberFormatException e) {
                 return null;
             }
@@ -850,10 +859,12 @@ public class PolygonClickHandler {
         private static class NameParts {
             final String prefix;
             final int number;
+            final int paddingWidth; // Number of digits in the original trailing number (for zero padding)
             
-            NameParts(String prefix, int number) {
+            NameParts(String prefix, int number, int paddingWidth) {
                 this.prefix = prefix;
                 this.number = number;
+                this.paddingWidth = paddingWidth;
             }
         }
         

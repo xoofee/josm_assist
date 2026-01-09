@@ -86,3 +86,27 @@ E.g., if the spatial is A-B-P and A is B3-237 and B is B3-238 then P should be B
 use the current logic (copy from nearest name)
 
 remember to make the code modularized and easy to maintain.
+
+
+## way combine
+
+add a toolbutton next to the switch button
+select an appropriate icon from the self-contained icons. read  reference/josm first if necessary
+
+when user click it, it should 
+1 detect ways from selected 
+2 get the reference way
+get the first way that have name. If all selected way do not have name, then just use the first way as reference way
+3 get nodes from the ways
+4 create a minimal rectangle from the nodes. note: the rectangle could be non horizontal or vertical (e.g., a 45 degree direction). So do not use simply the min max of x and y. Should use intelligent algorithm
+5 copy the tags from the reference ways
+6 remove the original (selected ways)
+
+the user should  be able to cancel this operation (say, by Ctrl + Z)
+remember to make the code modularized and easy to maintain.
+
+## zero padding
+
+for the name interplation feature.
+the zero padding of number should be reserved.
+if the closest name is B3-023 and B3-021 and the selected way is in the middle, the new name should be B3-022, not B3-22
