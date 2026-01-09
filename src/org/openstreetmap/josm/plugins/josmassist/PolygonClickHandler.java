@@ -569,6 +569,19 @@ public class PolygonClickHandler {
             int diff = Math.abs(partsA.number - partsB.number);
             System.out.println("[JOSM Assist] NameInterpolator: Name numbers: A=" + partsA.number + ", B=" + partsB.number + ", diff=" + diff);
             
+            // Ensure A has the smaller number for consistent ordering
+            // This ensures that when ordering = -1 (A-B-P), A is leftmost and B is rightmost
+            if (partsA.number > partsB.number) {
+                // Swap A and B to ensure A has smaller number
+                AdjacentWay tempWay = wayA;
+                wayA = wayB;
+                wayB = tempWay;
+                NameParts tempParts = partsA;
+                partsA = partsB;
+                partsB = tempParts;
+                System.out.println("[JOSM Assist] NameInterpolator: Swapped A and B to ensure A has smaller number");
+            }
+            
             // Calculate spatial relationships
             SpatialRelationship spatial = calculateSpatialRelationship(selectedWay, centerPoint, wayA.way, wayB.way);
             
@@ -775,18 +788,41 @@ public class PolygonClickHandler {
         
         /**
          * Determines spatial ordering: -1 if A-B-P, 0 if A-P-B, 1 if P-A-B or P-B-A.
+         * Uses projection onto line segment AB to determine ordering accurately.
          */
         private static int determineOrdering(org.openstreetmap.josm.data.coor.EastNorth p,
                 org.openstreetmap.josm.data.coor.EastNorth a, org.openstreetmap.josm.data.coor.EastNorth b) {
-            double distPA = p.distance(a);
-            double distPB = p.distance(b);
+            // Project P onto line AB to determine ordering
+            double abLenSq = a.distanceSq(b);
+            if (abLenSq == 0) {
+                // A and B are the same point, use distance-based fallback
+                double distPA = p.distance(a);
+                double distPB = p.distance(b);
+                if (distPA < distPB * 0.7) return 1;
+                if (distPB < distPA * 0.7) return -1;
+                return 0;
+            }
             
-            // If P is much closer to A than B, ordering is P-A-B (1)
-            if (distPA < distPB * 0.7) return 1;
-            // If P is much closer to B than A, ordering is A-B-P (-1)
-            if (distPB < distPA * 0.7) return -1;
-            // Otherwise, P is roughly between A and B (0)
-            return 0;
+            org.openstreetmap.josm.data.coor.EastNorth ab = new org.openstreetmap.josm.data.coor.EastNorth(
+                b.east() - a.east(), b.north() - a.north());
+            org.openstreetmap.josm.data.coor.EastNorth ap = new org.openstreetmap.josm.data.coor.EastNorth(
+                p.east() - a.east(), p.north() - a.north());
+            
+            // Calculate parameter t: position of projection along AB
+            // t = 0 at A, t = 1 at B
+            double t = (ap.east() * ab.east() + ap.north() * ab.north()) / abLenSq;
+            
+            // Determine ordering based on projection position
+            if (t < 0) {
+                // P projects before A: P-A-B (ordering = 1)
+                return 1;
+            } else if (t > 1) {
+                // P projects after B: A-B-P (ordering = -1)
+                return -1;
+            } else {
+                // P projects between A and B: A-P-B (ordering = 0)
+                return 0;
+            }
         }
         
         /**

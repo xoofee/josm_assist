@@ -88,6 +88,17 @@ use the current logic (copy from nearest name)
 remember to make the code modularized and easy to maintain.
 
 
+determineOrdering function: Switched from distance-based to projection-based ordering. It projects point P onto line segment AB and checks the parameter t:
+If t < 0: P is before A (P-A-B, ordering = 1)
+If 0 <= t <= 1: P is between A and B (A-P-B, ordering = 0)
+If t > 1: P is after B (A-B-P, ordering = -1)
+This correctly identifies when P is to the right of B.
+Ensured consistent A/B ordering: Added logic to ensure wayA always has the smaller number value. This ensures that when ordering = -1 (A-B-P), A is leftmost and B is rightmost, so the number inference is correct.
+These changes fix the ABN case where it was incorrectly returning B3-049. When B3-050 is on the left, B3-051 is on the right, and an empty name is to the right of B3-051, the code should now:
+Correctly detect the ordering as A-B-P (ordering = -1)
+Return max(50, 51) + 1 = 52 (or 53 if there's a gap in the numbering)
+The code should now correctly handle the ABN spatial relationship case.
+
 ## way combine
 
 add a toolbutton next to the switch button
