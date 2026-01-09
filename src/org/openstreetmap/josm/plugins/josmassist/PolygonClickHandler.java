@@ -122,15 +122,18 @@ public class PolygonClickHandler {
 
         System.out.println("[JOSM Assist] PolygonClickHandler: Selected way has name: " + hasName + " (name: '" + currentName + "')");
 
-        // Check if level is selected and find name from nearest way in same level
+        // Get level from the selected way itself
         // Only do this if the selected way doesn't already have a name
         if (!hasName) {
-            LevelProcessingHandler levelHandler = JosmAssistPlugin.getInstance().getLevelHandler();
-            String currentLevel = levelHandler != null ? levelHandler.getCurrentLevelTagWithUpdate() : null;
+            String wayLevel = selectedWay.get("level");
             
-            System.out.println("[JOSM Assist] PolygonClickHandler: Current level: " + currentLevel);
-            
-            if (currentLevel != null && !currentLevel.isEmpty()) {
+            // Check if the selected way has a valid level tag
+            if (wayLevel == null || wayLevel.isEmpty()) {
+                System.err.println("[JOSM Assist] ERROR: Selected way does not have a level tag or has an empty level. Cannot search for names. Please add a level tag to the way first.");
+                // Do nothing - just return after opening the tag editor
+            } else {
+                System.out.println("[JOSM Assist] PolygonClickHandler: Using level from selected way: " + wayLevel);
+                
                 // Calculate center of selected polygon using JOSM's centroid calculation
                 org.openstreetmap.josm.data.coor.EastNorth centroidEN = org.openstreetmap.josm.tools.Geometry.getCentroid(selectedWay.getNodes());
                 LatLon polygonCenter = null;
@@ -144,12 +147,12 @@ public class PolygonClickHandler {
                 
                 // Try to interpolate name from two adjacent ways first
                 System.out.println("[JOSM Assist] PolygonClickHandler: Attempting name interpolation from adjacent ways...");
-                nameToPaste = NameInterpolator.interpolateName(selectedWay, polygonCenter, currentLevel, ds, 50.0);
+                nameToPaste = NameInterpolator.interpolateName(selectedWay, polygonCenter, wayLevel, ds, 50.0);
                 
                 // If interpolation didn't work, fall back to nearest way
                 if (nameToPaste == null) {
-                    System.out.println("[JOSM Assist] PolygonClickHandler: Interpolation failed, searching for nearest named way in level '" + currentLevel + "' within 50 meters...");
-                    Way nearestNamedWay = findNearestNamedWayInLevel(polygonCenter, selectedWay, currentLevel, ds, 50.0);
+                    System.out.println("[JOSM Assist] PolygonClickHandler: Interpolation failed, searching for nearest named way in level '" + wayLevel + "' within 50 meters...");
+                    Way nearestNamedWay = findNearestNamedWayInLevel(polygonCenter, selectedWay, wayLevel, ds, 50.0);
                     if (nearestNamedWay != null) {
                         String name = nearestNamedWay.get("name");
                         if (name != null && !name.isEmpty()) {
@@ -159,13 +162,11 @@ public class PolygonClickHandler {
                             System.out.println("[JOSM Assist] PolygonClickHandler: Found nearest way but it has no name");
                         }
                     } else {
-                        System.out.println("[JOSM Assist] PolygonClickHandler: No named way found within 50 meters with level '" + currentLevel + "'");
+                        System.out.println("[JOSM Assist] PolygonClickHandler: No named way found within 50 meters with level '" + wayLevel + "'");
                     }
                 } else {
                     System.out.println("[JOSM Assist] PolygonClickHandler: Successfully interpolated name: '" + nameToPaste + "'");
                 }
-            } else {
-                System.out.println("[JOSM Assist] PolygonClickHandler: No level selected, skipping name search");
             }
         } else {
             System.out.println("[JOSM Assist] PolygonClickHandler: Selected way already has a name, skipping name search");
@@ -196,11 +197,6 @@ public class PolygonClickHandler {
     private List<Way> findAllContainingWays(LatLon click, DataSet ds) {
         List<Way> hits = new ArrayList<>();
         Node clickNode = new Node(click);
-        
-        // Get current level if one is selected
-        LevelProcessingHandler levelHandler = JosmAssistPlugin.getInstance().getLevelHandler();
-        String currentLevel = levelHandler != null ? levelHandler.getCurrentLevelTagWithUpdate() : null;
-        boolean levelFilterActive = currentLevel != null && !currentLevel.isEmpty();
 
         for (Way way : ds.getWays()) {
             if (!way.isClosed()) {
@@ -208,16 +204,6 @@ public class PolygonClickHandler {
             }
             if (!way.isArea()) {
                 continue;
-            }
-            
-            // Filter by level if a level is selected
-            if (levelFilterActive) {
-                String wayLevel = way.get("level");
-                // Only include ways that match the current level
-                // Ways without a level tag are excluded when level filtering is active
-                if (wayLevel == null || !wayLevel.equals(currentLevel)) {
-                    continue;
-                }
             }
 
             if (Geometry.nodeInsidePolygon(clickNode, way.getNodes())) {
@@ -296,7 +282,7 @@ public class PolygonClickHandler {
         // Try lateral search first (for parking spaces)
         OrientedBoundingBox obb = PolygonClickHandler.calculateOrientedBoundingBox(excludeWay);
         if (obb != null) {
-            System.out.println("[JOSM Assist] PolygonClickHandler: Attempting lateral search first (7x width, 1x length)");
+            System.out.println("[JOSM Assist] PolygonClickHandler: Attempting lateral search first (7x width, 1x length)in findNearestNamedWayInLevel call findNearestNamedWayInLevelLateral");
             Way lateralResult = findNearestNamedWayInLevelLateral(centerPoint, centerEN, excludeWay, level, ds, radiusMeters, obb);
             if (lateralResult != null) {
                 System.out.println("[JOSM Assist] PolygonClickHandler: Found way in lateral area");
@@ -315,49 +301,11 @@ public class PolygonClickHandler {
      */
     private Way findNearestNamedWayInLevelLateral(LatLon centerPoint, org.openstreetmap.josm.data.coor.EastNorth centerEN,
             Way excludeWay, String level, DataSet ds, double radiusMeters, OrientedBoundingBox obb) {
-        Way nearestWay = null;
-        double minDistance = Double.MAX_VALUE;
-        Node centerNode = new Node(centerPoint);
-        
         // DEBUG: Create debug polygon for lateral search area
         // createDebugLateralSearchPolygon(obb, level, ds);
         
-        // Create bounding box for lateral search area
-        BBox bbox = createLateralSearchBoundingBox(obb);
-        if (bbox == null) {
-            return null;
-        }
-        
-        List<Way> candidateWays = ds.searchWays(bbox);
-        System.out.println("[JOSM Assist] PolygonClickHandler: Lateral search found " + candidateWays.size() + " candidate ways");
-        
-        for (Way way : candidateWays) {
-            if (way.equals(excludeWay)) continue;
-            
-            // Filter by level (if level is specified)
-            if (!matchesLevel(way, level)) continue;
-            
-            // Filter by name
-            if (!hasName(way)) continue;
-            
-            // Check if way's centroid is within lateral area
-            org.openstreetmap.josm.data.coor.EastNorth wayCentroidEN = 
-                org.openstreetmap.josm.tools.Geometry.getCentroid(way.getNodes());
-            if (wayCentroidEN == null) continue;
-            
-            if (!isPointInLateralArea(wayCentroidEN, obb)) {
-                continue; // Skip if centroid is not in lateral area
-            }
-            
-            // Calculate distance
-            double distance = calculateDistanceToWay(centerNode, way);
-            if (!Double.isNaN(distance) && distance <= radiusMeters && distance < minDistance) {
-                minDistance = distance;
-                nearestWay = way;
-            }
-        }
-        
-        return nearestWay;
+        List<WayWithDistance> ways = findWaysInLateralArea(excludeWay, centerPoint, level, ds, radiusMeters, obb);
+        return ways.isEmpty() ? null : ways.get(0).way;
     }
     
     /**
@@ -365,49 +313,17 @@ public class PolygonClickHandler {
      */
     private Way findNearestNamedWayInLevelCircular(LatLon centerPoint, Node centerNode,
             Way excludeWay, String level, DataSet ds, double radiusMeters) {
-        Way nearestWay = null;
-        double minDistance = Double.MAX_VALUE;
-        int sameLevelWays = 0;
-        int namedWays = 0;
-        int withinRadiusWays = 0;
-
-        // Create bounding box around center point with radius
-        org.openstreetmap.josm.data.projection.Projection proj = 
-            org.openstreetmap.josm.data.projection.ProjectionRegistry.getProjection();
-        org.openstreetmap.josm.data.coor.EastNorth centerEN = proj.latlon2eastNorth(centerPoint);
-        
-        // Convert radius from meters to projection units
-        double radiusInProjectionUnits = radiusMeters / proj.getMetersPerUnit();
-        
-        // Create bounding box in EastNorth coordinates
-        org.openstreetmap.josm.data.coor.EastNorth minEN = new org.openstreetmap.josm.data.coor.EastNorth(
-            centerEN.east() - radiusInProjectionUnits,
-            centerEN.north() - radiusInProjectionUnits
-        );
-        org.openstreetmap.josm.data.coor.EastNorth maxEN = new org.openstreetmap.josm.data.coor.EastNorth(
-            centerEN.east() + radiusInProjectionUnits,
-            centerEN.north() + radiusInProjectionUnits
-        );
-        
-        // Convert back to LatLon for BBox
-        LatLon minLL = proj.eastNorth2latlon(minEN);
-        LatLon maxLL = proj.eastNorth2latlon(maxEN);
-        
-        // Create BBox from LatLon bounds
-        Node minNode = new Node(minLL);
-        Node maxNode = new Node(maxLL);
-        Node centerNode1 = new Node(centerPoint);
-        Way tempWay = new Way();
-        tempWay.addNode(minNode);
-        tempWay.addNode(maxNode);
-        tempWay.addNode(centerNode1);
-        BBox bbox = new BBox(tempWay);
+        // Create circular bounding box
+        BBox bbox = createCircularBoundingBox(centerPoint, radiusMeters);
         
         System.out.println("[JOSM Assist] PolygonClickHandler: Circular search in bounding box around center: " + centerPoint);
 
         // Use spatial indexing to search only ways within the bounding box
         List<Way> candidateWays = ds.searchWays(bbox);
         System.out.println("[JOSM Assist] PolygonClickHandler: Found " + candidateWays.size() + " ways in bounding box (out of " + ds.getWays().size() + " total)");
+
+        Way nearestWay = null;
+        double minDistance = Double.MAX_VALUE;
 
         for (Way way : candidateWays) {
             // Skip the selected way itself
@@ -419,18 +335,16 @@ public class PolygonClickHandler {
             if (!matchesLevel(way, level)) {
                 continue;
             }
-            sameLevelWays++;
 
             // Filter by name
             if (!hasName(way)) {
                 continue;
             }
-            namedWays++;
             
             String wayName = way.get("name");
 
             // Calculate distance from center point to way
-            double distance = calculateDistanceToWay(centerNode, way);
+            double distance = calculateDistanceToWayStatic(centerNode, way);
             
             System.out.println("[JOSM Assist] PolygonClickHandler: Found way with level '" + level + "' and name '" + wayName + "' at distance " + distance + " meters");
             
@@ -438,13 +352,9 @@ public class PolygonClickHandler {
             if (!Double.isNaN(distance) && distance <= radiusMeters && distance < minDistance) {
                 minDistance = distance;
                 nearestWay = way;
-                withinRadiusWays++;
                 System.out.println("[JOSM Assist] PolygonClickHandler: This is the nearest so far (distance: " + distance + " meters)");
             }
         }
-
-        System.out.println("[JOSM Assist] PolygonClickHandler: Search summary - Candidate ways: " + candidateWays.size() + 
-            ", Same level: " + sameLevelWays + ", With name: " + namedWays + ", Within radius: " + withinRadiusWays);
         
         if (nearestWay != null) {
             System.out.println("[JOSM Assist] PolygonClickHandler: Selected nearest way with name '" + nearestWay.get("name") + 
@@ -456,40 +366,6 @@ public class PolygonClickHandler {
         return nearestWay;
     }
 
-    /**
-     * Calculates the minimum distance from a node to a way in meters.
-     * @param node the node (point) to measure from
-     * @param way the way to measure to
-     * @return the distance in meters, or NaN if calculation fails
-     */
-    private double calculateDistanceToWay(Node node, Way way) {
-        if (way == null || way.getNodes() == null || way.getNodes().isEmpty()) {
-            return Double.NaN;
-        }
-
-        try {
-            // Use Geometry.getDistance which returns distance in meters
-            double distance = Geometry.getDistance(node, way);
-            if (!Double.isNaN(distance) && distance != Double.MAX_VALUE) {
-                return distance;
-            }
-        } catch (Exception e) {
-            // Fallback: calculate distance to nearest node of the way
-        }
-
-        // Fallback: find minimum distance to any node in the way
-        double minDist = Double.MAX_VALUE;
-        for (Node wayNode : way.getNodes()) {
-            if (wayNode != null && wayNode.getCoor() != null) {
-                double dist = node.getCoor().greatCircleDistance(wayNode.getCoor());
-                if (!Double.isNaN(dist) && dist < minDist) {
-                    minDist = dist;
-                }
-            }
-        }
-
-        return (minDist == Double.MAX_VALUE) ? Double.NaN : minDist;
-    }
     
     /**
      * Helper class to store oriented bounding box information.
@@ -709,6 +585,141 @@ public class PolygonClickHandler {
     private static boolean hasName(Way way) {
         String wayName = way.get("name");
         return wayName != null && !wayName.isEmpty();
+    }
+    
+    /**
+     * Helper class to store way with distance for search results.
+     */
+    private static class WayWithDistance {
+        final Way way;
+        final double distance;
+        
+        WayWithDistance(Way way, double distance) {
+            this.way = way;
+            this.distance = distance;
+        }
+    }
+    
+    /**
+     * Shared lateral search: finds all ways within lateral area (7x width, 1x length).
+     * Returns a list of ways with their distances, sorted by distance.
+     * Only searches ways in the specified level (if level is provided).
+     */
+    private static List<WayWithDistance> findWaysInLateralArea(Way excludeWay, LatLon centerPoint, String level,
+            DataSet ds, double radiusMeters, OrientedBoundingBox obb) {
+        List<WayWithDistance> result = new ArrayList<>();
+        Node centerNode = new Node(centerPoint);
+        
+        // Create bounding box for lateral search area
+        BBox bbox = createLateralSearchBoundingBox(obb);
+        if (bbox == null) {
+            return result;
+        }
+        
+        List<Way> candidateWays = ds.searchWays(bbox);
+        System.out.println("[JOSM Assist] PolygonClickHandler: Lateral search found " + candidateWays.size() + " candidate ways");
+        
+        for (Way way : candidateWays) {
+            if (way.equals(excludeWay)) continue;
+            
+            // Filter by level (if level is specified)
+            if (!matchesLevel(way, level)) continue;
+            
+            // Filter by name
+            if (!hasName(way)) continue;
+            
+            // Check if way's centroid is within lateral area
+            org.openstreetmap.josm.data.coor.EastNorth wayCentroidEN = 
+                org.openstreetmap.josm.tools.Geometry.getCentroid(way.getNodes());
+            if (wayCentroidEN == null) continue;
+            
+            if (!isPointInLateralArea(wayCentroidEN, obb)) {
+                continue; // Skip if centroid is not in lateral area
+            }
+            
+            // Calculate distance using static method
+            double distance = calculateDistanceToWayStatic(centerNode, way);
+            if (!Double.isNaN(distance) && distance <= radiusMeters) {
+                result.add(new WayWithDistance(way, distance));
+            }
+        }
+        
+        // Sort by distance
+        result.sort(Comparator.comparingDouble(w -> w.distance));
+        
+        return result;
+    }
+    
+    /**
+     * Creates a circular bounding box around a center point with specified radius.
+     */
+    private static BBox createCircularBoundingBox(LatLon centerPoint, double radiusMeters) {
+        org.openstreetmap.josm.data.projection.Projection proj = 
+            org.openstreetmap.josm.data.projection.ProjectionRegistry.getProjection();
+        org.openstreetmap.josm.data.coor.EastNorth centerEN = proj.latlon2eastNorth(centerPoint);
+        
+        // Convert radius from meters to projection units
+        double radiusInProjectionUnits = radiusMeters / proj.getMetersPerUnit();
+        
+        // Create bounding box in EastNorth coordinates
+        org.openstreetmap.josm.data.coor.EastNorth minEN = new org.openstreetmap.josm.data.coor.EastNorth(
+            centerEN.east() - radiusInProjectionUnits,
+            centerEN.north() - radiusInProjectionUnits
+        );
+        org.openstreetmap.josm.data.coor.EastNorth maxEN = new org.openstreetmap.josm.data.coor.EastNorth(
+            centerEN.east() + radiusInProjectionUnits,
+            centerEN.north() + radiusInProjectionUnits
+        );
+        
+        // Convert back to LatLon for BBox
+        LatLon minLL = proj.eastNorth2latlon(minEN);
+        LatLon maxLL = proj.eastNorth2latlon(maxEN);
+        
+        // Create BBox from LatLon bounds
+        Node minNode = new Node(minLL);
+        Node maxNode = new Node(maxLL);
+        Node centerNode = new Node(centerPoint);
+        Way tempWay = new Way();
+        tempWay.addNode(minNode);
+        tempWay.addNode(maxNode);
+        tempWay.addNode(centerNode);
+        
+        return new BBox(tempWay);
+    }
+    
+    /**
+     * Calculates the minimum distance from a node to a way in meters.
+     * @param node the node (point) to measure from
+     * @param way the way to measure to
+     * @return the distance in meters, or NaN if calculation fails
+     */
+    private static double calculateDistanceToWayStatic(Node node, Way way) {
+        if (way == null || way.getNodes() == null || way.getNodes().isEmpty()) {
+            return Double.NaN;
+        }
+        
+        try {
+            // Use Geometry.getDistance which returns distance in meters
+            double distance = Geometry.getDistance(node, way);
+            if (!Double.isNaN(distance) && distance != Double.MAX_VALUE) {
+                return distance;
+            }
+        } catch (Exception e) {
+            // Fallback: calculate distance to nearest node of the way
+        }
+        
+        // Fallback: find minimum distance to any node in the way
+        double minDist = Double.MAX_VALUE;
+        for (Node wayNode : way.getNodes()) {
+            if (wayNode != null && wayNode.getCoor() != null) {
+                double dist = node.getCoor().greatCircleDistance(wayNode.getCoor());
+                if (!Double.isNaN(dist) && dist < minDist) {
+                    minDist = dist;
+                }
+            }
+        }
+        
+        return (minDist == Double.MAX_VALUE) ? Double.NaN : minDist;
     }
     
     /**
@@ -1015,7 +1026,7 @@ public class PolygonClickHandler {
             // Try lateral search first (for parking spaces)
             OrientedBoundingBox obb = PolygonClickHandler.calculateOrientedBoundingBox(selectedWay);
             if (obb != null) {
-                System.out.println("[JOSM Assist] NameInterpolator: Attempting lateral search first (7x width, 1x length)");
+                System.out.println("[JOSM Assist] NameInterpolator: Attempting lateral search first (7x width, 1x length) in findAdjacentNamedWays, call findAdjacentNamedWaysLateral");
                 List<AdjacentWay> lateralResult = findAdjacentNamedWaysLateral(selectedWay, centerPoint, level, ds, radiusMeters, obb);
                 if (lateralResult.size() >= 2) {
                     System.out.println("[JOSM Assist] NameInterpolator: Found " + lateralResult.size() + " ways in lateral area");
@@ -1034,48 +1045,17 @@ public class PolygonClickHandler {
          */
         private static List<AdjacentWay> findAdjacentNamedWaysLateral(Way selectedWay, LatLon centerPoint, String level,
                 DataSet ds, double radiusMeters, OrientedBoundingBox obb) {
-            List<AdjacentWay> adjacentWays = new ArrayList<>();
-            Node centerNode = new Node(centerPoint);
-            
             // DEBUG: Create debug polygon for lateral search area
             // PolygonClickHandler.createDebugLateralSearchPolygon(obb, level, ds);
             
-            // Create bounding box for lateral search area
-            BBox bbox = PolygonClickHandler.createLateralSearchBoundingBox(obb);
-            if (bbox == null) {
-                return adjacentWays;
+            List<WayWithDistance> ways = PolygonClickHandler.findWaysInLateralArea(selectedWay, centerPoint, level, ds, radiusMeters, obb);
+            
+            // Convert to AdjacentWay list
+            List<AdjacentWay> adjacentWays = new ArrayList<>();
+            for (WayWithDistance wwd : ways) {
+                String wayName = wwd.way.get("name");
+                adjacentWays.add(new AdjacentWay(wwd.way, wayName, wwd.distance));
             }
-            
-            List<Way> candidateWays = ds.searchWays(bbox);
-            System.out.println("[JOSM Assist] NameInterpolator: Lateral search found " + candidateWays.size() + " candidate ways");
-            
-            for (Way way : candidateWays) {
-                if (way.equals(selectedWay)) continue;
-                
-                // Filter by level (if level is specified)
-                if (!PolygonClickHandler.matchesLevel(way, level)) continue;
-                
-                // Filter by name
-                if (!PolygonClickHandler.hasName(way)) continue;
-                
-                // Check if way's centroid is within lateral area
-                org.openstreetmap.josm.data.coor.EastNorth wayCentroidEN = 
-                    org.openstreetmap.josm.tools.Geometry.getCentroid(way.getNodes());
-                if (wayCentroidEN == null) continue;
-                
-                if (!PolygonClickHandler.isPointInLateralArea(wayCentroidEN, obb)) {
-                    continue; // Skip if centroid is not in lateral area
-                }
-                
-                double distance = calculateDistanceToWayStatic(centerNode, way);
-                if (!Double.isNaN(distance) && distance <= radiusMeters) {
-                    String wayName = way.get("name");
-                    adjacentWays.add(new AdjacentWay(way, wayName, distance));
-                }
-            }
-            
-            // Sort by distance
-            adjacentWays.sort(Comparator.comparingDouble(a -> a.distance));
             
             return adjacentWays;
         }
@@ -1087,28 +1067,8 @@ public class PolygonClickHandler {
             List<AdjacentWay> adjacentWays = new ArrayList<>();
             Node centerNode = new Node(centerPoint);
             
-            // Create bounding box for spatial search
-            org.openstreetmap.josm.data.projection.Projection proj =
-                org.openstreetmap.josm.data.projection.ProjectionRegistry.getProjection();
-            org.openstreetmap.josm.data.coor.EastNorth centerEN = proj.latlon2eastNorth(centerPoint);
-            double radiusInProjectionUnits = radiusMeters / proj.getMetersPerUnit();
-            
-            org.openstreetmap.josm.data.coor.EastNorth minEN = new org.openstreetmap.josm.data.coor.EastNorth(
-                centerEN.east() - radiusInProjectionUnits, centerEN.north() - radiusInProjectionUnits);
-            org.openstreetmap.josm.data.coor.EastNorth maxEN = new org.openstreetmap.josm.data.coor.EastNorth(
-                centerEN.east() + radiusInProjectionUnits, centerEN.north() + radiusInProjectionUnits);
-            
-            LatLon minLL = proj.eastNorth2latlon(minEN);
-            LatLon maxLL = proj.eastNorth2latlon(maxEN);
-            
-            Node minNode = new Node(minLL);
-            Node maxNode = new Node(maxLL);
-            Node centerNode1 = new Node(centerPoint);
-            Way tempWay = new Way();
-            tempWay.addNode(minNode);
-            tempWay.addNode(maxNode);
-            tempWay.addNode(centerNode1);
-            BBox bbox = new BBox(tempWay);
+            // Create circular bounding box
+            BBox bbox = PolygonClickHandler.createCircularBoundingBox(centerPoint, radiusMeters);
             
             List<Way> candidateWays = ds.searchWays(bbox);
             
@@ -1123,7 +1083,7 @@ public class PolygonClickHandler {
                 
                 String wayName = way.get("name");
                 
-                double distance = calculateDistanceToWayStatic(centerNode, way);
+                double distance = PolygonClickHandler.calculateDistanceToWayStatic(centerNode, way);
                 if (!Double.isNaN(distance) && distance <= radiusMeters) {
                     adjacentWays.add(new AdjacentWay(way, wayName, distance));
                 }
@@ -1301,35 +1261,6 @@ public class PolygonClickHandler {
             }
         }
         
-        /**
-         * Calculates distance from node to way (static version for use in helper class).
-         */
-        private static double calculateDistanceToWayStatic(Node node, Way way) {
-            if (way == null || way.getNodes() == null || way.getNodes().isEmpty()) {
-                return Double.NaN;
-            }
-            
-            try {
-                double distance = Geometry.getDistance(node, way);
-                if (!Double.isNaN(distance) && distance != Double.MAX_VALUE) {
-                    return distance;
-                }
-            } catch (Exception e) {
-                // Fallback
-            }
-            
-            double minDist = Double.MAX_VALUE;
-            for (Node wayNode : way.getNodes()) {
-                if (wayNode != null && wayNode.getCoor() != null) {
-                    double dist = node.getCoor().greatCircleDistance(wayNode.getCoor());
-                    if (!Double.isNaN(dist) && dist < minDist) {
-                        minDist = dist;
-                    }
-                }
-            }
-            
-            return (minDist == Double.MAX_VALUE) ? Double.NaN : minDist;
-        }
         
         /**
          * Helper class to store adjacent way information.
