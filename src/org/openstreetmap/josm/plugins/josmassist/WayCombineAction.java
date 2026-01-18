@@ -162,9 +162,45 @@ public class WayCombineAction extends JosmAction {
 
         // Step 6: Add way and delete original ways
         commands.add(new AddCommand(ds, newWay));
-        commands.add(new DeleteCommand(ds, ways));
+        commands.add(new DeleteCommand(ds, collectPrimitivesToDelete(ds, ways)));
 
         return new SequenceCommand(tr("Combine {0} ways to rectangle", ways.size()), commands);
+    }
+
+    /**
+     * Collects the ways to delete and also any nodes which become orphaned as a result.
+     * <p>
+     * A node is considered safe to delete if all of its current referrers are among the
+     * ways being deleted. This prevents deleting shared nodes used by other ways/relations.
+     */
+    private static Collection<OsmPrimitive> collectPrimitivesToDelete(DataSet ds, List<Way> waysToDelete) {
+        Set<Way> waysSet = new HashSet<>(waysToDelete);
+        Set<OsmPrimitive> toDelete = new HashSet<>(waysToDelete);
+
+        Set<Node> candidateNodes = new HashSet<>();
+        for (Way way : waysToDelete) {
+            candidateNodes.addAll(way.getNodes());
+        }
+
+        for (Node node : candidateNodes) {
+            if (node == null || node.isDeleted() || node.getDataSet() != ds) {
+                continue;
+            }
+
+            boolean hasExternalReferrers = false;
+            for (OsmPrimitive ref : node.getReferrers()) {
+                if (!(ref instanceof Way) || !waysSet.contains((Way) ref)) {
+                    hasExternalReferrers = true;
+                    break;
+                }
+            }
+
+            if (!hasExternalReferrers) {
+                toDelete.add(node);
+            }
+        }
+
+        return toDelete;
     }
 
     /**
