@@ -153,3 +153,18 @@ note the S is a rectangle, that is not necessarily aligned to the standard direc
 only ways that have center (of polygon) in this area should be including in the first name search and interpolation
 
 if no name found, then fall back to the original search method
+
+
+## Move (preserving metric)
+
+add a menu to
+1 detect elements copied (nodes/ways)
+2 move the elements to the current center of window while preserving metric
+
+The default (paste) way just add offset to lat lon which is problematic. For example, when moving a rectangle from equator to 22 deg north, it becomes shorter in longintudian direction by cos(22 degrees), which is bad
+
+I do not want to keep the original elements, so just reassign the coordinates of the original nodes is ok, if you think this is good than paste and remove the original elements
+
+the user should  be able to cancel this operation (say, by Ctrl + Z)
+remember to make the code modularized and easy to maintain.
+
