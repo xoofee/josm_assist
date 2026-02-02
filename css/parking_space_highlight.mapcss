@@ -29,3 +29,12 @@ in vscode:
     casing-width: 1;
     z-index: 20;
 }
+
+
+*[barrier=wall] {
+    color:rgb(218, 226, 219);          /* green for verified (with alpha) */
+    width: 2;
+    casing-color: white;    /* sharp edge on black bg */
+    casing-width: 1;
+    z-index: 20;
+}
