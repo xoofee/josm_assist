@@ -6,6 +6,10 @@ import java.util.Comparator;
 import java.util.List;
 
 import org.openstreetmap.josm.data.coor.LatLon;
+import java.util.Collections;
+
+import org.openstreetmap.josm.command.ChangePropertyCommand;
+import org.openstreetmap.josm.data.UndoRedoHandler;
 import org.openstreetmap.josm.data.osm.BBox;
 import org.openstreetmap.josm.data.osm.DataSet;
 import org.openstreetmap.josm.data.osm.Node;
@@ -57,7 +61,7 @@ public class PolygonClickHandler {
             return false;
         }
 
-        return selectWayContaining(click);
+        return selectWayContaining(click, e);
     }
 
     /**
@@ -80,9 +84,10 @@ public class PolygonClickHandler {
      * Selects a way containing the clicked point.
      * For overlapping polygons, selects the smallest area first.
      * @param click the clicked location
+     * @param e the mouse event (used to detect Ctrl for direct name apply)
      * @return true if a way was selected
      */
-    private boolean selectWayContaining(LatLon click) {
+    private boolean selectWayContaining(LatLon click, MouseEvent e) {
         DataSet ds = MainApplication.getLayerManager().getEditDataSet();
         if (ds == null) {
             return false;
@@ -105,7 +110,7 @@ public class PolygonClickHandler {
                     return Math.abs(bounds.getWidth() * bounds.getHeight());
                 }
                 return Double.MAX_VALUE;
-            } catch (Exception e) {
+            } catch (Exception exception) {
                 return Double.MAX_VALUE; // Put invalid ways at the end
             }
         }));
@@ -170,6 +175,21 @@ public class PolygonClickHandler {
             }
         } else {
             System.out.println("[JOSM Assist] PolygonClickHandler: Selected way already has a name, skipping name search");
+        }
+
+        // Ctrl + right-click: if name was empty and we inferred a name, apply it directly without opening the dialog
+        boolean ctrlDown = e != null && e.isControlDown();
+        if (!hasName && nameToPaste != null && !nameToPaste.isEmpty()) {
+            System.out.println("[JOSM Assist] PolygonClickHandler: Inferred name available; Ctrl down=" + ctrlDown + " (Ctrl+right-click to apply without dialog)");
+        }
+        if (e != null && ctrlDown && !hasName && nameToPaste != null && !nameToPaste.isEmpty()) {
+            ChangePropertyCommand cmd = new ChangePropertyCommand(
+                Collections.singleton(selectedWay), "name", nameToPaste);
+            if (cmd.getObjectsNumber() > 0) {
+                UndoRedoHandler.getInstance().add(cmd);
+                System.out.println("[JOSM Assist] PolygonClickHandler: Ctrl+click: applied inferred name '" + nameToPaste + "' without dialog");
+            }
+            return true;
         }
 
         // Ensure name tag exists (create if missing)

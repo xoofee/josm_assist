@@ -2,6 +2,12 @@
 
 A JOSM (Java OpenStreetMap Editor) plugin that provides enhanced polygon selection and level processing features.
 
+```powershell
+# set utf8 to prevent garbled chinese output by gradle
+chcp 65001
+.\gradlew.bat build; .\install.ps1
+```
+
 ## Features
 
 ### 1. Plugin Toggle
