@@ -12,7 +12,7 @@ in vscode:
 
 *[amenity=parking_space][verified!="true"][!name],
 *[amenity=parking_space][verified!="true"][name=""],
-*[amenity=parking_space][verified!="true"][name!~/^[A-NP-Za-np-z0-9-]+$/] {
+*[amenity=parking_space][verified!="true"][name!~/^[A-HJ-NP-Ya-hj-np-y0-9-]+$/] {
     color: #00E5FF;          /* cyan, NOT selection red */
     width: 4;
     fill-color: #00E5FF;
