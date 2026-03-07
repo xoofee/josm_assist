@@ -31,6 +31,17 @@ in vscode:
 }
 
 
+/* Ways without level tag (e.g. parking_space / indoor) */
+way[!level] {
+    color: #FF9800;         /* orange: missing level */
+    width: 3;
+    fill-color: #FF9800;
+    fill-opacity: 0.25;
+    casing-color: white;
+    casing-width: 1;
+    z-index: 5;
+}
+
 *[barrier=wall] {
     color:rgb(218, 226, 219);          /* green for verified (with alpha) */
     width: 2;
