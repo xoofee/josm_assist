@@ -84,7 +84,7 @@ public class PolygonClickHandler {
      * Selects a way containing the clicked point.
      * For overlapping polygons, selects the smallest area first.
      * @param click the clicked location
-     * @param e the mouse event (used to detect Ctrl for direct name apply)
+     * @param e the mouse event (Ctrl: apply inferred name without dialog; Alt: remove name tag)
      * @return true if a way was selected
      */
     private boolean selectWayContaining(LatLon click, MouseEvent e) {
@@ -175,6 +175,18 @@ public class PolygonClickHandler {
             }
         } else {
             System.out.println("[JOSM Assist] PolygonClickHandler: Selected way already has a name, skipping name search");
+        }
+
+        // Alt + right-click: remove the name tag from the selected way
+        boolean altDown = e != null && e.isAltDown();
+        if (altDown && hasName) {
+            ChangePropertyCommand cmd = new ChangePropertyCommand(
+                Collections.singleton(selectedWay), "name", null);
+            if (cmd.getObjectsNumber() > 0) {
+                UndoRedoHandler.getInstance().add(cmd);
+                System.out.println("[JOSM Assist] PolygonClickHandler: Alt+right-click: removed name tag");
+            }
+            return true;
         }
 
         // Ctrl + right-click: if name was empty and we inferred a name, apply it directly without opening the dialog
