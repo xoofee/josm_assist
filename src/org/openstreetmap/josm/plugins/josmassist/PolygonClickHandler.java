@@ -177,31 +177,38 @@ public class PolygonClickHandler {
             System.out.println("[JOSM Assist] PolygonClickHandler: Selected way already has a name, skipping name search");
         }
 
-        // Alt + right-click: remove the name tag from the selected way
+        // Alt + right-click: remove the name tag, or do nothing if no name (consume event to avoid Alt leaking to system)
         boolean altDown = e != null && e.isAltDown();
-        if (altDown && hasName) {
-            ChangePropertyCommand cmd = new ChangePropertyCommand(
-                Collections.singleton(selectedWay), "name", null);
-            if (cmd.getObjectsNumber() > 0) {
-                UndoRedoHandler.getInstance().add(cmd);
-                System.out.println("[JOSM Assist] PolygonClickHandler: Alt+right-click: removed name tag");
+        if (altDown) {
+            if (hasName) {
+                ChangePropertyCommand cmd = new ChangePropertyCommand(
+                    Collections.singleton(selectedWay), "name", null);
+                if (cmd.getObjectsNumber() > 0) {
+                    UndoRedoHandler.getInstance().add(cmd);
+                    System.out.println("[JOSM Assist] PolygonClickHandler: Alt+right-click: removed name tag");
+                }
             }
+            if (e != null) e.consume();
             return true;
         }
 
-        // Ctrl + right-click: if name was empty and we inferred a name, apply it directly without opening the dialog
+        // Ctrl + right-click: apply inferred name only when name is empty; if name already set, do nothing (consume to avoid dialog/shortcuts)
         boolean ctrlDown = e != null && e.isControlDown();
-        if (!hasName && nameToPaste != null && !nameToPaste.isEmpty()) {
-            System.out.println("[JOSM Assist] PolygonClickHandler: Inferred name available; Ctrl down=" + ctrlDown + " (Ctrl+right-click to apply without dialog)");
-        }
-        if (e != null && ctrlDown && !hasName && nameToPaste != null && !nameToPaste.isEmpty()) {
-            ChangePropertyCommand cmd = new ChangePropertyCommand(
-                Collections.singleton(selectedWay), "name", nameToPaste);
-            if (cmd.getObjectsNumber() > 0) {
-                UndoRedoHandler.getInstance().add(cmd);
-                System.out.println("[JOSM Assist] PolygonClickHandler: Ctrl+click: applied inferred name '" + nameToPaste + "' without dialog");
+        if (ctrlDown) {
+            if (!hasName && nameToPaste != null && !nameToPaste.isEmpty()) {
+                ChangePropertyCommand cmd = new ChangePropertyCommand(
+                    Collections.singleton(selectedWay), "name", nameToPaste);
+                if (cmd.getObjectsNumber() > 0) {
+                    UndoRedoHandler.getInstance().add(cmd);
+                    System.out.println("[JOSM Assist] PolygonClickHandler: Ctrl+click: applied inferred name '" + nameToPaste + "' without dialog");
+                }
             }
+            if (e != null) e.consume();
             return true;
+        }
+
+        if (!hasName && nameToPaste != null && !nameToPaste.isEmpty()) {
+            System.out.println("[JOSM Assist] PolygonClickHandler: Inferred name available (Ctrl+right-click to apply without dialog)");
         }
 
         // Ensure name tag exists (create if missing)
