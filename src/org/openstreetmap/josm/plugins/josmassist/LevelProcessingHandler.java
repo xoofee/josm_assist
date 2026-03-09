@@ -274,8 +274,9 @@ public class LevelProcessingHandler implements ActiveLayerChangeListener, DataSe
             }
         }
 
-        // Decision: assign to single node only if exactly 1 node and no ways
-        boolean assignToSingleNode = (nodes.size() == 1 && ways.isEmpty());
+        // For nodes: only set level if newly added elements contain exactly a single node (no ways, no other nodes).
+        // Ways and other types always get the level when level filter is on.
+        boolean newlyAddedIsSingleNodeOnly = (newElements.size() == 1 && nodes.size() == 1 && ways.isEmpty());
 
         // Assign level tags
         int assignedCount = 0;
@@ -284,7 +285,7 @@ public class LevelProcessingHandler implements ActiveLayerChangeListener, DataSe
 
             boolean shouldAssign = false;
             if (prim instanceof Node) {
-                shouldAssign = assignToSingleNode;
+                shouldAssign = newlyAddedIsSingleNodeOnly;
             } else if (prim instanceof Way) {
                 shouldAssign = true; // Always assign to ways
             } else {
