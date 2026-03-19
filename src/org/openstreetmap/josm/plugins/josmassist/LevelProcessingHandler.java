@@ -285,7 +285,9 @@ public class LevelProcessingHandler implements ActiveLayerChangeListener, DataSe
 
             boolean shouldAssign = false;
             if (prim instanceof Node) {
-                shouldAssign = newlyAddedIsSingleNodeOnly;
+                // Only assign level to a standalone node: single node batch and not part of any way
+                boolean belongsToWay = ((Node) prim).getParentWays().stream().anyMatch(w -> w.getDataSet() != null);
+                shouldAssign = newlyAddedIsSingleNodeOnly && !belongsToWay;
             } else if (prim instanceof Way) {
                 shouldAssign = true; // Always assign to ways
             } else {
