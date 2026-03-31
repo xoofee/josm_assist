@@ -6,8 +6,9 @@ in vscode:
 
 <tag k='name' v='.*[^A-NP-Za-np-z0-9-].*' />
 
-   */
 
+
+   */
 
 
 *[amenity=parking_space][verified!="true"][!name],
@@ -49,3 +50,24 @@ way[!level] {
     casing-width: 1;
     z-index: 20;
 }
+
+
+*[shop=mall][verified!="true"][!name],
+*[shop=mall][verified!="true"][name=""] {
+    color: #00E5FF;          /* cyan, NOT selection red */
+    width: 4;
+    fill-color: #00E5FF;
+    fill-opacity: 0.35;
+    casing-color: white;    /* sharp edge on black bg */
+    casing-width: 2;
+    z-index: 10;
+}
+
+*[shop=mall][verified="true"] {
+    color: #00FF0DFF;          /* green for verified (with alpha) */
+    width: 2;
+    casing-color: white;    /* sharp edge on black bg */
+    casing-width: 1;
+    z-index: 20;
+}
+
