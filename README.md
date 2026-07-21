@@ -2,10 +2,19 @@
 
 A JOSM (Java OpenStreetMap Editor) plugin that provides enhanced polygon selection and level processing features.
 
+Windows:
+
 ```powershell
-# set utf8 to prevent garbled chinese output by gradle
+# Windows: set UTF-8 to prevent garbled Chinese Gradle output
 chcp 65001
 .\gradlew.bat build; .\install.ps1
+```
+
+macOS / Ubuntu:
+
+```bash
+# macOS / Ubuntu
+./build.sh --install
 ```
 
 ## Features
@@ -36,12 +45,17 @@ chcp 65001
 
 1. Build the plugin:
    ```bash
-   ./gradlew build
+   # macOS / Ubuntu
+   ./build.sh
+
+   # Windows
+   gradlew.bat build
    ```
 
 2. Copy the generated JAR file from `build/libs/josmassist-1.0.jar` to your JOSM plugins directory:
    - Windows: `%APPDATA%\JOSM\plugins\`
-   - Linux: `~/.josm/plugins/`
+   - Linux: `~/.local/share/JOSM/plugins/` (or `$XDG_DATA_HOME/JOSM/plugins/`)
+     for current JOSM installations; `~/.josm/plugins/` for legacy profiles
    - macOS: `~/Library/Application Support/JOSM/plugins/`
 
 3. Restart JOSM or go to Edit → Preferences → Plugins and enable "JOSM Assist"
@@ -57,7 +71,29 @@ chcp 65001
 ### Building
 
 ```bash
-./gradlew build
+# macOS / Ubuntu: check Java and wrapper prerequisites once, then build
+./setup-build-env.sh
+./build.sh
+
+# Copy the built plugin to JOSM's plugin directory
+./install.sh
+# Or build and install in one step
+./build.sh --install
+```
+
+macOS and Ubuntu/Linux use the same POSIX shell scripts. Both require a JDK
+(Java 8 or newer), `curl` or `wget`, and internet access on the first build.
+`build.sh` downloads the tested JOSM JAR to `libs/josm.jar` if it is not
+already present. The install location is selected
+automatically: `~/Library/Application Support/JOSM/plugins/` on macOS and
+`~/.local/share/JOSM/plugins/` on current Linux installations (or
+`$XDG_DATA_HOME/JOSM/plugins/`). Existing legacy `~/.josm` profiles continue
+to use `~/.josm/plugins/`.
+
+To use a local JOSM JAR instead of the Maven dependency:
+
+```bash
+./download-josm.sh
 ```
 
 ### Project Structure
