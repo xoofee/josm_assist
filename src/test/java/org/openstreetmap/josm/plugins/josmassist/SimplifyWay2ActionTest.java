@@ -1,0 +1,140 @@
+package org.openstreetmap.josm.plugins.josmassist;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
+
+import java.util.Arrays;
+import java.util.List;
+
+import org.junit.Test;
+import org.openstreetmap.josm.command.Command;
+import org.openstreetmap.josm.data.coor.LatLon;
+import org.openstreetmap.josm.data.osm.DataSet;
+import org.openstreetmap.josm.data.osm.Node;
+import org.openstreetmap.josm.data.osm.Relation;
+import org.openstreetmap.josm.data.osm.RelationMember;
+import org.openstreetmap.josm.data.osm.Way;
+import org.openstreetmap.josm.data.projection.ProjectionRegistry;
+import org.openstreetmap.josm.data.projection.Projections;
+import org.openstreetmap.josm.spi.preferences.Config;
+import org.openstreetmap.josm.spi.preferences.MemoryPreferences;
+import org.junit.BeforeClass;
+
+/** Tests for the shared-node-aware simplifier. */
+public class SimplifyWay2ActionTest {
+
+    @BeforeClass
+    public static void setUpProjection() {
+        Config.setPreferencesInstance(new MemoryPreferences());
+        ProjectionRegistry.setProjection(Projections.getProjectionByCode("EPSG:3857"));
+    }
+
+    @Test
+    public void removesCollinearInternalNode() {
+        DataSet dataSet = new DataSet();
+        Node a = node(0, 0);
+        Node b = node(0, 0.00001);
+        Node c = node(0, 0.00002);
+        Way way = way(dataSet, a, b, c);
+
+        List<Node> result = SimplifyWay2Action.simplifyWay(way, 3);
+
+        assertEquals(Arrays.asList(a, c), result);
+    }
+
+    @Test
+    public void removesNodeAfterSharedEndpoint() {
+        DataSet dataSet = new DataSet();
+        Node a = node(0, 0);
+        Node b = node(0, 0.00001);
+        Node c = node(0, 0.00002);
+        Node d = node(0, 0.00003);
+        way(dataSet, a, b);
+        Way selected = way(dataSet, b, c, d);
+
+        List<Node> result = SimplifyWay2Action.simplifyWay(selected, 3);
+
+        assertEquals(Arrays.asList(b, d), result);
+        assertSame(b, result.get(0));
+    }
+
+    @Test
+    public void keepsTaggedAndRelationNodes() {
+        DataSet dataSet = new DataSet();
+        Node a = node(0, 0);
+        Node tagged = node(0, 0.00001);
+        tagged.put("indoor", "room");
+        Node relationMember = node(0, 0.00002);
+        Node d = node(0, 0.00003);
+        Way selected = way(dataSet, a, tagged, relationMember, d);
+        Relation relation = new Relation();
+        relation.addMember(new RelationMember("", relationMember));
+        dataSet.addPrimitive(relation);
+
+        List<Node> result = SimplifyWay2Action.simplifyWay(selected, 3);
+
+        assertTrue(result.contains(tagged));
+        assertTrue(result.contains(relationMember));
+    }
+
+    @Test
+    public void leavesNodeOutsideToleranceAndRepeatedNode() {
+        DataSet dataSet = new DataSet();
+        Node a = node(0, 0);
+        Node outside = node(0.0001, 0.00001);
+        Node d = node(0, 0.00002);
+        Way way = way(dataSet, a, outside, d);
+        assertEquals(3, SimplifyWay2Action.simplifyWay(way, 3).size());
+
+        Node repeated = node(0, 0.00003);
+        Way repeatedWay = way(dataSet, a, repeated, repeated, d);
+        assertEquals(4, SimplifyWay2Action.simplifyWay(repeatedWay, 3).size());
+    }
+
+    @Test
+    public void createsNoCommandWhenNothingCanBeRemoved() {
+        DataSet dataSet = new DataSet();
+        Node a = node(0, 0);
+        Node b = node(0.0001, 0.00001);
+        Node c = node(0, 0.00002);
+        Way way = way(dataSet, a, b, c);
+
+        Command command = SimplifyWay2Action.createCommand(Arrays.asList(way), 3);
+
+        assertNull(command);
+    }
+
+    @Test
+    public void commandIsUndoableAndDeletesOnlyRemovedNodes() {
+        DataSet dataSet = new DataSet();
+        Node a = node(0, 0);
+        Node b = node(0, 0.00001);
+        Node c = node(0, 0.00002);
+        Way way = way(dataSet, a, b, c);
+
+        Command command = SimplifyWay2Action.createCommand(Arrays.asList(way), 3);
+        assertTrue(command.executeCommand());
+        assertEquals(Arrays.asList(a, c), way.getNodes());
+        assertTrue(b.isDeleted());
+
+        command.undoCommand();
+        assertEquals(Arrays.asList(a, b, c), way.getNodes());
+        assertFalse(b.isDeleted());
+    }
+
+    private static Node node(double lat, double lon) {
+        return new Node(new LatLon(lat, lon));
+    }
+
+    private static Way way(DataSet dataSet, Node... nodes) {
+        Way way = new Way();
+        for (Node node : nodes) {
+            way.addNode(node);
+        }
+        dataSet.addPrimitiveRecursive(way);
+        return way;
+    }
+}

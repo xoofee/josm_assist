@@ -27,6 +27,7 @@ public class JosmAssistPlugin extends Plugin {
     private TogglePluginAction toggleAction;
     private WayCombineAction wayCombineAction;
     private MarkVerifiedAction markVerifiedAction;
+    private SimplifyWay2Action simplifyWay2Action;
     private MovePreservingMetricAction movePreservingMetricAction;
     private LevelProcessingHandler levelHandler;
     private EditModeExitListener editModeExitListener;
@@ -44,6 +45,7 @@ public class JosmAssistPlugin extends Plugin {
         toggleAction = new TogglePluginAction();
         wayCombineAction = new WayCombineAction();
         markVerifiedAction = new MarkVerifiedAction();
+        simplifyWay2Action = new SimplifyWay2Action();
         movePreservingMetricAction = new MovePreservingMetricAction();
         levelHandler = new LevelProcessingHandler();
         editModeExitListener = new EditModeExitListener(levelHandler);
@@ -56,6 +58,7 @@ public class JosmAssistPlugin extends Plugin {
                 MainApplication.getMenu().toolsMenu.addSeparator();
                 MainApplication.getMenu().toolsMenu.add(wayCombineAction);
                 MainApplication.getMenu().toolsMenu.add(markVerifiedAction);
+                MainApplication.getMenu().toolsMenu.add(simplifyWay2Action);
                 MainApplication.getMenu().toolsMenu.add(movePreservingMetricAction);
             }
         } catch (Exception e) {
@@ -67,6 +70,7 @@ public class JosmAssistPlugin extends Plugin {
             if (MainApplication.getToolbar() != null) {
                 MainApplication.getToolbar().register(toggleAction);
                 MainApplication.getToolbar().register(wayCombineAction);
+                MainApplication.getToolbar().register(simplifyWay2Action);
                 // Refresh toolbar to make buttons visible
                 javax.swing.SwingUtilities.invokeLater(() -> {
                     try {
@@ -223,4 +227,3 @@ public class JosmAssistPlugin extends Plugin {
         return mapMode;
     }
 }
-

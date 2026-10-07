@@ -30,12 +30,17 @@ dependencies {
     
     // For testing (optional)
     testImplementation 'junit:junit:4.13.2'
+    if (josmJar.exists()) {
+        testCompileOnly files(josmJar)
+        testRuntimeOnly files(josmJar)
+    }
 }
 
 sourceSets {
     main {
         java {
             srcDir 'src'
+            exclude 'test/**'
         }
     }
 }
