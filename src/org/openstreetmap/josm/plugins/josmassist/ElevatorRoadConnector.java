@@ -82,7 +82,7 @@ public final class ElevatorRoadConnector {
                 }
 
                 Way connector = new Way();
-                connector.put("highway", "footway");
+                connector.put("highway", "service");
                 if (!level.isEmpty()) {
                     connector.put("level", level);
                 }
@@ -118,12 +118,11 @@ public final class ElevatorRoadConnector {
 
     private static boolean hasExistingConnector(Node elevator, String level) {
         for (Way way : elevator.getParentWays()) {
-            if (way.getNodesCount() != 2 || !"footway".equals(way.get("highway"))) {
+            if (way.getNodesCount() < 2) {
                 continue;
             }
             String wayLevel = way.get("level");
-            if ((level.isEmpty() && (wayLevel == null || wayLevel.isEmpty()))
-                    || levelsOf(wayLevel).contains(level)) {
+            if (wayLevel != null && !wayLevel.trim().isEmpty() && levelsOf(wayLevel).contains(level)) {
                 return true;
             }
         }

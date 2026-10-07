@@ -30,6 +30,7 @@ public class JosmAssistPlugin extends Plugin {
     private SimplifyWay2Action simplifyWay2Action;
     private MovePreservingMetricAction movePreservingMetricAction;
     private CleanupAction cleanupAction;
+    private ElevatorRoadConnectorAction elevatorRoadConnectorAction;
     private LevelProcessingHandler levelHandler;
     private EditModeExitListener editModeExitListener;
     private PolygonClickHandler clickHandler;
@@ -49,6 +50,7 @@ public class JosmAssistPlugin extends Plugin {
         simplifyWay2Action = new SimplifyWay2Action();
         movePreservingMetricAction = new MovePreservingMetricAction();
         cleanupAction = new CleanupAction();
+        elevatorRoadConnectorAction = new ElevatorRoadConnectorAction();
         levelHandler = new LevelProcessingHandler();
         editModeExitListener = new EditModeExitListener(levelHandler);
         clickHandler = new PolygonClickHandler();
@@ -63,6 +65,7 @@ public class JosmAssistPlugin extends Plugin {
                 MainApplication.getMenu().toolsMenu.add(simplifyWay2Action);
                 MainApplication.getMenu().toolsMenu.add(movePreservingMetricAction);
                 MainApplication.getMenu().toolsMenu.add(cleanupAction);
+                MainApplication.getMenu().toolsMenu.add(elevatorRoadConnectorAction);
             }
         } catch (Exception e) {
             System.err.println("Could not add menu item: " + e.getMessage());
@@ -75,6 +78,7 @@ public class JosmAssistPlugin extends Plugin {
                 MainApplication.getToolbar().register(wayCombineAction);
                 MainApplication.getToolbar().register(simplifyWay2Action);
                 MainApplication.getToolbar().register(cleanupAction);
+                MainApplication.getToolbar().register(elevatorRoadConnectorAction);
                 // Refresh toolbar to make buttons visible
                 javax.swing.SwingUtilities.invokeLater(() -> {
                     try {
