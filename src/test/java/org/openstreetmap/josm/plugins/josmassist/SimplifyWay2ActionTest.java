@@ -62,6 +62,64 @@ public class SimplifyWay2ActionTest {
     }
 
     @Test
+    public void combinesSelectedWaysAndSimplifiesTheCombinedPath() {
+        DataSet dataSet = new DataSet();
+        Node a = node(0, 0);
+        Node b = node(0, 0.00001);
+        Node c = node(0, 0.00002);
+        Node d = node(0, 0.00003);
+        Way first = way(dataSet, a, b);
+        Way second = way(dataSet, b, c, d);
+
+        Command command = SimplifyWay2Action.createCommand(Arrays.asList(first, second), 3);
+        assertTrue(command.executeCommand());
+
+        assertEquals(Arrays.asList(a, d), first.getNodes());
+        assertTrue(second.isDeleted());
+        assertTrue(b.isDeleted());
+        assertTrue(c.isDeleted());
+    }
+
+    @Test
+    public void combinesAReversedSelectedWayChain() {
+        DataSet dataSet = new DataSet();
+        Node a = node(0, 0);
+        Node b = node(0, 0.00001);
+        Node c = node(0, 0.00002);
+        Node d = node(0, 0.00003);
+        Way first = way(dataSet, b, a);
+        Way second = way(dataSet, b, c, d);
+
+        Command command = SimplifyWay2Action.createCommand(Arrays.asList(first, second), 3);
+        assertTrue(command.executeCommand());
+
+        assertEquals(Arrays.asList(a, d), first.getNodes());
+        assertTrue(second.isDeleted());
+    }
+
+    @Test
+    public void doesNotCombineUnselectedOrIncompatibleWays() {
+        DataSet dataSet = new DataSet();
+        Node a = node(0, 0);
+        Node b = node(0, 0.00001);
+        Node c = node(0, 0.00002);
+        Node d = node(0, 0.00003);
+        Way neighbor = way(dataSet, a, b);
+        Way selected = way(dataSet, b, c, d);
+
+        Command unselectedNeighborCommand = SimplifyWay2Action.createCommand(Arrays.asList(selected), 3);
+        assertTrue(unselectedNeighborCommand.executeCommand());
+        assertEquals(Arrays.asList(b, d), selected.getNodes());
+        assertEquals(Arrays.asList(a, b), neighbor.getNodes());
+        unselectedNeighborCommand.undoCommand();
+        neighbor.put("highway", "service");
+        Command incompatibleCommand = SimplifyWay2Action.createCommand(Arrays.asList(neighbor, selected), 3);
+        assertTrue(incompatibleCommand.executeCommand());
+        assertFalse(neighbor.isDeleted());
+        assertFalse(selected.isDeleted());
+    }
+
+    @Test
     public void keepsTaggedAndRelationNodes() {
         DataSet dataSet = new DataSet();
         Node a = node(0, 0);
