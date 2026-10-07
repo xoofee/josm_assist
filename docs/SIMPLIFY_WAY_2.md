@@ -49,6 +49,12 @@ intersection is near the bend, and the turn is sufficiently sharp. Gentle
 curves, ambiguous fits, and intersections far outside the span are left
 unchanged. Protected nodes are never replaced.
 
+The fitted lines use the nodes in the selected candidate runs. Consequently,
+the restored point is not guaranteed to be the intersection of only the first
+two and last two nodes of the way. On a rounded bend, fitting several nodes
+can produce a slightly different intersection than extrapolating the two
+endpoint-adjacent segments. This is a known limitation.
+
 Ordinary Douglas–Peucker simplification runs after corner restoration to remove
 any remaining redundant points.
 

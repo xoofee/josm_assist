@@ -47,6 +47,7 @@ macOS / Ubuntu:
 - Tagged nodes, repeated nodes, relation-referenced nodes, and nodes shared with other ways are protected.
 - Configure separate maximum errors for ordinary simplification and rounded-corner fitting. Both default to 3 metres and can be remembered independently.
 - Rounded L-shaped runs are replaced by an untagged node at the intersection of their fitted straight lines. Ambiguous, parallel, or poorly fitted corners are left unchanged.
+- The fitted lines use the points in each candidate run; the result is not guaranteed to equal the intersection of only the first and last endpoint-adjacent segments of a rounded way.
 - Combining, corner restoration, node removal, and cleanup are performed as one undoable operation.
 
 See [docs/SIMPLIFY_WAY_2.md](docs/SIMPLIFY_WAY_2.md) for the algorithm, safety rules, and examples.
