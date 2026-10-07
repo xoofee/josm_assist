@@ -25,6 +25,8 @@ import org.openstreetmap.josm.data.osm.event.WayNodesChangedEvent;
 import org.openstreetmap.josm.data.osm.event.RelationMembersChangedEvent;
 import org.openstreetmap.josm.data.osm.event.DataChangedEvent;
 import org.openstreetmap.josm.data.osm.event.AbstractDatasetChangedEvent;
+import org.openstreetmap.josm.data.UndoRedoHandler;
+import org.openstreetmap.josm.command.Command;
 import org.openstreetmap.josm.gui.MainApplication;
 import org.openstreetmap.josm.gui.autofilter.AutoFilter;
 import org.openstreetmap.josm.gui.autofilter.AutoFilterManager;
@@ -299,6 +301,11 @@ public class LevelProcessingHandler implements ActiveLayerChangeListener, DataSe
                 assignedCount++;
                 System.out.println("[JOSM Assist] DEBUG: Assigned level '" + currentLevelTag + "' to: " + prim);
             }
+        }
+
+        Command elevatorCommand = ElevatorRoadConnector.createCommand(ds, nodes);
+        if (elevatorCommand != null) {
+            UndoRedoHandler.getInstance().add(elevatorCommand);
         }
 
         newElements.clear();

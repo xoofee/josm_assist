@@ -183,6 +183,57 @@ public class SimplifyWay2ActionTest {
         assertFalse(b.isDeleted());
     }
 
+    @Test
+    public void restoresRoundedCornerAtFittedIntersection() {
+        DataSet dataSet = new DataSet();
+        Node a = node(0, 0);
+        Node p1 = node(0, 0.00003);
+        Node p2 = node(0.000005, 0.000035);
+        Node p3 = node(0.000015, 0.000045);
+        Node d = node(0.00003, 0.000045);
+        Way way = way(dataSet, a, p1, p2, p3, d);
+
+        Command command = SimplifyWay2Action.createCommand(Arrays.asList(way), 3, 3);
+        assertTrue(command.executeCommand());
+        assertEquals(3, way.getNodesCount());
+        Node corner = way.getNode(1);
+        assertFalse(corner == p1 || corner == p2 || corner == p3);
+        assertTrue(corner.isNew());
+        command.undoCommand();
+        assertEquals(Arrays.asList(a, p1, p2, p3, d), way.getNodes());
+        assertFalse(dataSet.containsNode(corner));
+    }
+
+    @Test
+    public void doesNotRestoreGentleOrParallelCorner() {
+        DataSet dataSet = new DataSet();
+        Node a = node(0, 0);
+        Node b = node(0, 0.00001);
+        Node c = node(0.000001, 0.00002);
+        Node d = node(0.000003, 0.00003);
+        Way gentle = way(dataSet, a, b, c, d);
+        SimplifyWay2Action.SimplificationResult gentleResult =
+                SimplifyWay2Action.simplifyWayWithCorners(gentle, 0.01, 3);
+        assertTrue(gentleResult.addedNodes.isEmpty());
+
+        Node e = node(0.00001, 0.00004);
+        Node f = node(0.00002, 0.00005);
+        Way parallel = way(dataSet, a, b, e, f);
+        SimplifyWay2Action.SimplificationResult parallelResult =
+                SimplifyWay2Action.simplifyWayWithCorners(parallel, 0.01, 0.01);
+        assertTrue(parallelResult.addedNodes.isEmpty());
+    }
+
+    @Test
+    public void rememberedTolerancesAreLoadedWithoutShowingDialog() {
+        Config.getPref().putDouble("josmassist.simplify-way2.max-error", 1.5);
+        Config.getPref().putDouble("josmassist.simplify-way2.corner-error", 2.5);
+        Config.getPref().put("josmassist.simplify-way2.remember", "yes");
+        SimplifyWay2Action.SimplifyParameters parameters = SimplifyWay2Action.askSimplifyParameters();
+        assertEquals(1.5, parameters.simplificationError, 0.001);
+        assertEquals(2.5, parameters.cornerError, 0.001);
+    }
+
     private static Node node(double lat, double lon) {
         return new Node(new LatLon(lat, lon));
     }

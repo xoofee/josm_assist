@@ -2,6 +2,7 @@ package org.openstreetmap.josm.plugins.josmassist;
 
 import static org.openstreetmap.josm.tools.I18n.tr;
 
+import java.awt.GridBagLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
@@ -15,20 +16,35 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import javax.swing.BorderFactory;
+import javax.swing.JCheckBox;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.JSpinner;
+import javax.swing.SpinnerNumberModel;
+
 import org.openstreetmap.josm.actions.JosmAction;
-import org.openstreetmap.josm.actions.SimplifyWayAction;
+import org.openstreetmap.josm.command.AddCommand;
 import org.openstreetmap.josm.command.ChangeNodesCommand;
 import org.openstreetmap.josm.command.Command;
 import org.openstreetmap.josm.command.DeleteCommand;
 import org.openstreetmap.josm.command.SequenceCommand;
 import org.openstreetmap.josm.data.UndoRedoHandler;
+import org.openstreetmap.josm.data.coor.EastNorth;
+import org.openstreetmap.josm.data.coor.LatLon;
 import org.openstreetmap.josm.data.osm.DataSet;
 import org.openstreetmap.josm.data.osm.Node;
 import org.openstreetmap.josm.data.osm.OsmPrimitive;
 import org.openstreetmap.josm.data.osm.Relation;
 import org.openstreetmap.josm.data.osm.Way;
 import org.openstreetmap.josm.data.projection.Ellipsoid;
+import org.openstreetmap.josm.data.projection.ProjectionRegistry;
 import org.openstreetmap.josm.gui.MainApplication;
+import org.openstreetmap.josm.gui.ExtendedDialog;
+import org.openstreetmap.josm.spi.preferences.Config;
+import org.openstreetmap.josm.spi.preferences.IPreferences;
+import org.openstreetmap.josm.tools.GBC;
+import org.openstreetmap.josm.tools.Geometry;
 import org.openstreetmap.josm.tools.ImageProvider;
 import org.openstreetmap.josm.tools.Shortcut;
 
@@ -37,6 +53,11 @@ import org.openstreetmap.josm.tools.Shortcut;
  * shared nodes to be considered by Douglas-Peucker.
  */
 public class SimplifyWay2Action extends JosmAction {
+
+    private static final String PREF_MAX_ERROR = "josmassist.simplify-way2.max-error";
+    private static final String PREF_CORNER_ERROR = "josmassist.simplify-way2.corner-error";
+    private static final String PREF_REMEMBER = "josmassist.simplify-way2.remember";
+    private static final double DEFAULT_ERROR = 3.0;
 
     /** Constructs the action. */
     public SimplifyWay2Action() {
@@ -64,13 +85,12 @@ public class SimplifyWay2Action extends JosmAction {
             return;
         }
 
-        double threshold = SimplifyWayAction.askSimplifyWays(
-                ways, tr("Simplify selected ways with the improved shared-node handling."), false);
-        if (threshold <= 0) {
+        SimplifyParameters parameters = askSimplifyParameters();
+        if (parameters == null) {
             return;
         }
 
-        Command command = createCommand(ways, threshold);
+        Command command = createCommand(ways, parameters.simplificationError, parameters.cornerError);
         if (command != null) {
             UndoRedoHandler.getInstance().add(command);
         }
@@ -84,6 +104,10 @@ public class SimplifyWay2Action extends JosmAction {
      * @return command, or {@code null} if no node can be removed
      */
     static Command createCommand(Collection<Way> ways, double threshold) {
+        return createCommand(ways, threshold, 0);
+    }
+
+    static Command createCommand(Collection<Way> ways, double threshold, double cornerTolerance) {
         List<Way> selectedWays = ways.stream()
                 .filter(way -> way != null && !way.isIncomplete())
                 .collect(Collectors.toList());
@@ -94,21 +118,35 @@ public class SimplifyWay2Action extends JosmAction {
         List<Command> commands = new ArrayList<>();
         Set<Node> deletedNodes = new HashSet<>();
         Set<Way> changedWays = new HashSet<>();
+        Set<Node> addedNodes = new LinkedHashSet<>();
 
         for (CombinedWay combined : combinedWays) {
-            List<Node> simplified = simplifyNodes(combined.target, combined.path, combined.ways, threshold);
-            addWayChange(combined.target, combined.path, simplified, commands, deletedNodes);
+            SimplificationResult result = simplifyNodes(combined.target, combined.path, combined.ways,
+                    threshold, cornerTolerance);
+            List<Node> simplified = result.nodes;
+            addedNodes.addAll(result.addedNodes);
+            addWayChange(combined.target, combined.target.getNodes(), combined.path, simplified,
+                    commands, deletedNodes);
             changedWays.add(combined.target);
         }
         for (Way way : selectedWays) {
             if (absorbedWays.contains(way) || changedWays.contains(way)) {
                 continue;
             }
-            List<Node> simplified = simplifyWay(way, threshold);
-            addWayChange(way, way.getNodes(), simplified, commands, deletedNodes);
+            SimplificationResult result = simplifyWayWithCorners(way, threshold, cornerTolerance);
+            addedNodes.addAll(result.addedNodes);
+            addWayChange(way, way.getNodes(), way.getNodes(), result.nodes, commands, deletedNodes);
         }
         if (commands.isEmpty()) {
             return null;
+        }
+        if (!addedNodes.isEmpty()) {
+            DataSet dataSet = selectedWays.get(0).getDataSet();
+            List<Command> additions = new ArrayList<>();
+            for (Node node : addedNodes) {
+                additions.add(new AddCommand(dataSet, node));
+            }
+            commands.addAll(0, additions);
         }
         Set<OsmPrimitive> deletions = new LinkedHashSet<>(absorbedWays);
         deletions.addAll(deletedNodes);
@@ -118,16 +156,62 @@ public class SimplifyWay2Action extends JosmAction {
         return new SequenceCommand(tr("Simplify Way 2"), commands);
     }
 
-    private static void addWayChange(Way way, List<Node> original, List<Node> simplified,
-            List<Command> commands, Set<Node> deletedNodes) {
-        if (simplified.size() == original.size()) {
+    static SimplifyParameters askSimplifyParameters() {
+        IPreferences preferences = Config.getPref();
+        if ("yes".equals(preferences.get(PREF_REMEMBER, "ask"))) {
+            return new SimplifyParameters(preferences.getDouble(PREF_MAX_ERROR, DEFAULT_ERROR),
+                    preferences.getDouble(PREF_CORNER_ERROR, DEFAULT_ERROR));
+        }
+
+        JPanel panel = new JPanel(new GridBagLayout());
+        panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
+        SpinnerNumberModel simplifyModel = new SpinnerNumberModel(
+                preferences.getDouble(PREF_MAX_ERROR, DEFAULT_ERROR), 0.01, null, 0.5);
+        SpinnerNumberModel cornerModel = new SpinnerNumberModel(
+                preferences.getDouble(PREF_CORNER_ERROR, DEFAULT_ERROR), 0.01, null, 0.5);
+        JSpinner simplifySpinner = new JSpinner(simplifyModel);
+        JSpinner cornerSpinner = new JSpinner(cornerModel);
+        ((JSpinner.DefaultEditor) simplifySpinner.getEditor()).getTextField().setColumns(5);
+        ((JSpinner.DefaultEditor) cornerSpinner.getEditor()).getTextField().setColumns(5);
+        panel.add(new JLabel(tr("Maximum simplification error (meters):")), GBC.std());
+        panel.add(simplifySpinner, GBC.eol());
+        panel.add(new JLabel(tr("Rounded corner fitting error (meters):")), GBC.std());
+        panel.add(cornerSpinner, GBC.eol());
+        JCheckBox remember = new JCheckBox(tr("Do not ask again"));
+        panel.add(remember, GBC.eol());
+
+        ExtendedDialog dialog = new ExtendedDialog(MainApplication.getMainFrame(),
+                tr("Simplify Way 2"), tr("Simplify"), tr("Cancel"))
+                .setContent(panel)
+                .setButtonIcons("simplify", "cancel");
+        if (dialog.showDialog().getValue() != 1) {
+            return null;
+        }
+        double simplificationError = simplifyModel.getNumber().doubleValue();
+        double cornerError = cornerModel.getNumber().doubleValue();
+        preferences.putDouble(PREF_MAX_ERROR, simplificationError);
+        preferences.putDouble(PREF_CORNER_ERROR, cornerError);
+        preferences.put(PREF_REMEMBER, remember.isSelected() ? "yes" : "ask");
+        return new SimplifyParameters(simplificationError, cornerError);
+    }
+
+    static final class SimplifyParameters {
+        final double simplificationError;
+        final double cornerError;
+
+        SimplifyParameters(double simplificationError, double cornerError) {
+            this.simplificationError = simplificationError;
+            this.cornerError = cornerError;
+        }
+    }
+
+    private static void addWayChange(Way way, List<Node> current, List<Node> deletionSource,
+            List<Node> simplified, List<Command> commands, Set<Node> deletedNodes) {
+        if (simplified.equals(current)) {
             return;
         }
-        Set<Node> removed = new HashSet<>(original);
+        Set<Node> removed = new HashSet<>(deletionSource);
         removed.removeAll(simplified);
-        if (removed.isEmpty()) {
-            return;
-        }
         commands.add(new ChangeNodesCommand(way, simplified));
         deletedNodes.addAll(removed);
     }
@@ -274,10 +358,10 @@ public class SimplifyWay2Action extends JosmAction {
         return new CombinedWay(target, absorbed, ordered, path);
     }
 
-    private static List<Node> simplifyNodes(Way context, List<Node> nodes, Set<Way> ignoredReferrers,
-            double threshold) {
+    private static SimplificationResult simplifyNodes(Way context, List<Node> nodes,
+            Set<Way> ignoredReferrers, double threshold, double cornerTolerance) {
         if (nodes.size() < 3) {
-            return nodes;
+            return new SimplificationResult(nodes, Collections.emptySet());
         }
         Set<Node> repeated = repeatedNodes(nodes);
         List<Integer> anchors = new ArrayList<>();
@@ -289,10 +373,22 @@ public class SimplifyWay2Action extends JosmAction {
         }
         anchors.add(nodes.size() - 1);
         List<Node> result = new ArrayList<>();
+        Set<Node> addedNodes = new LinkedHashSet<>();
         for (int i = 0; i < anchors.size() - 1; i++) {
-            appendSimplified(nodes, anchors.get(i), anchors.get(i + 1), threshold, result);
+            int from = anchors.get(i);
+            int to = anchors.get(i + 1);
+            CornerResult corner = cornerTolerance > 0
+                    ? findRoundedCorner(nodes, from, to, cornerTolerance) : null;
+            if (corner != null) {
+                appendNode(result, nodes.get(from));
+                appendNode(result, corner.node);
+                appendNode(result, nodes.get(to));
+                addedNodes.add(corner.node);
+            } else {
+                appendSimplified(nodes, from, to, threshold, result);
+            }
         }
-        return result;
+        return new SimplificationResult(result, addedNodes);
     }
 
     private static final class CombinedWay {
@@ -309,40 +405,179 @@ public class SimplifyWay2Action extends JosmAction {
         }
     }
 
+    static final class SimplificationResult {
+        final List<Node> nodes;
+        final Set<Node> addedNodes;
+
+        SimplificationResult(List<Node> nodes, Set<Node> addedNodes) {
+            this.nodes = nodes;
+            this.addedNodes = addedNodes;
+        }
+    }
+
+    private static final class CornerResult {
+        private final Node node;
+
+        CornerResult(Node node) {
+            this.node = node;
+        }
+    }
+
     /** Simplifies one way while preserving all protected nodes and closure. */
     static List<Node> simplifyWay(Way way, double threshold) {
+        return simplifyWayWithCorners(way, threshold, 0).nodes;
+    }
+
+    static SimplificationResult simplifyWayWithCorners(Way way, double threshold,
+            double cornerTolerance) {
         List<Node> nodes = way.getNodes();
         if (nodes.size() < 3) {
-            return nodes;
+            return new SimplificationResult(nodes, Collections.emptySet());
         }
 
         boolean closed = way.isClosed();
         int last = closed ? nodes.size() - 2 : nodes.size() - 1;
         List<Node> working = new ArrayList<>(nodes.subList(0, last + 1));
-        Set<Node> repeated = repeatedNodes(working);
-        List<Integer> anchors = new ArrayList<>();
-        anchors.add(0);
-        for (int i = 1; i < working.size() - 1; i++) {
-            Node node = working.get(i);
-            if (isProtected(way, node, repeated, Collections.emptySet())) {
-                anchors.add(i);
-            }
-        }
-        if (working.size() > 1) {
-            anchors.add(working.size() - 1);
-        }
-
-        List<Node> result = new ArrayList<>();
-        for (int i = 0; i < anchors.size() - 1; i++) {
-            appendSimplified(working, anchors.get(i), anchors.get(i + 1), threshold, result);
-        }
-        if (result.isEmpty()) {
-            result.addAll(working);
-        }
+        SimplificationResult simplified = simplifyNodes(way, working, Collections.emptySet(),
+                threshold, cornerTolerance);
+        List<Node> result = new ArrayList<>(simplified.nodes);
         if (closed) {
             result.add(result.get(0));
         }
-        return result;
+        return new SimplificationResult(result, simplified.addedNodes);
+    }
+
+    private static void appendNode(List<Node> output, Node node) {
+        if (output.isEmpty() || output.get(output.size() - 1) != node) {
+            output.add(node);
+        }
+    }
+
+    private static CornerResult findRoundedCorner(List<Node> nodes, int from, int to,
+            double tolerance) {
+        if (to - from < 3) {
+            return null;
+        }
+        CornerResult best = null;
+        double bestScore = Double.POSITIVE_INFINITY;
+        for (int split = from + 1; split < to; split++) {
+            FitLine first = fitLine(nodes, from, split);
+            FitLine second = fitLine(nodes, split, to);
+            if (first == null || second == null) {
+                continue;
+            }
+            double turn = Math.acos(Math.max(-1, Math.min(1, dot(first.direction, second.direction))));
+            turn = Math.min(turn, Math.PI - turn);
+            if (turn < Math.toRadians(30)) {
+                continue;
+            }
+            EastNorth intersection = Geometry.getLineLineIntersection(first.start, first.end,
+                    second.start, second.end);
+            if (intersection == null || !nearSpan(nodes, from, to, intersection, tolerance)) {
+                continue;
+            }
+            double residual = Math.max(first.residual, second.residual);
+            if (residual > tolerance) {
+                continue;
+            }
+            LatLon position = ProjectionRegistry.getProjection().eastNorth2latlon(intersection);
+            Node candidate = new Node(position);
+            double score = residual + intersection.distance(nodes.get(split).getEastNorth()) * 1e-4;
+            if (score < bestScore) {
+                bestScore = score;
+                best = new CornerResult(candidate);
+            }
+        }
+        return best;
+    }
+
+    private static boolean nearSpan(List<Node> nodes, int from, int to, EastNorth point,
+            double tolerance) {
+        double minX = Double.POSITIVE_INFINITY;
+        double minY = Double.POSITIVE_INFINITY;
+        double maxX = Double.NEGATIVE_INFINITY;
+        double maxY = Double.NEGATIVE_INFINITY;
+        for (int i = from; i <= to; i++) {
+            EastNorth en = nodes.get(i).getEastNorth();
+            minX = Math.min(minX, en.east());
+            minY = Math.min(minY, en.north());
+            maxX = Math.max(maxX, en.east());
+            maxY = Math.max(maxY, en.north());
+        }
+        double margin = Math.max(10, tolerance * 4);
+        return point.east() >= minX - margin && point.east() <= maxX + margin
+                && point.north() >= minY - margin && point.north() <= maxY + margin;
+    }
+
+    private static FitLine fitLine(List<Node> nodes, int from, int to) {
+        if (to <= from) {
+            return null;
+        }
+        double meanX = 0;
+        double meanY = 0;
+        int count = to - from + 1;
+        for (int i = from; i <= to; i++) {
+            EastNorth point = nodes.get(i).getEastNorth();
+            meanX += point.east();
+            meanY += point.north();
+        }
+        meanX /= count;
+        meanY /= count;
+        double xx = 0;
+        double yy = 0;
+        double xy = 0;
+        for (int i = from; i <= to; i++) {
+            EastNorth point = nodes.get(i).getEastNorth();
+            double x = point.east() - meanX;
+            double y = point.north() - meanY;
+            xx += x * x;
+            yy += y * y;
+            xy += x * y;
+        }
+        double angle = 0.5 * Math.atan2(2 * xy, xx - yy);
+        double dx = Math.cos(angle);
+        double dy = Math.sin(angle);
+        if (xx + yy < 1e-12) {
+            return null;
+        }
+        if (dx * (nodes.get(to).getEastNorth().east() - nodes.get(from).getEastNorth().east())
+                + dy * (nodes.get(to).getEastNorth().north() - nodes.get(from).getEastNorth().north()) < 0) {
+            dx = -dx;
+            dy = -dy;
+        }
+        EastNorth center = new EastNorth(meanX, meanY);
+        EastNorth start = new EastNorth(meanX - dx * 1_000_000, meanY - dy * 1_000_000);
+        EastNorth end = new EastNorth(meanX + dx * 1_000_000, meanY + dy * 1_000_000);
+        double residual = 0;
+        for (int i = from; i <= to; i++) {
+            residual = Math.max(residual, perpendicularDistance(center, dx, dy,
+                    nodes.get(i).getEastNorth()));
+        }
+        return new FitLine(start, end, new EastNorth(dx, dy), residual);
+    }
+
+    private static double perpendicularDistance(EastNorth center, double dx, double dy,
+            EastNorth point) {
+        return Math.abs((point.east() - center.east()) * dy
+                - (point.north() - center.north()) * dx);
+    }
+
+    private static double dot(EastNorth first, EastNorth second) {
+        return first.east() * second.east() + first.north() * second.north();
+    }
+
+    private static final class FitLine {
+        private final EastNorth start;
+        private final EastNorth end;
+        private final EastNorth direction;
+        private final double residual;
+
+        FitLine(EastNorth start, EastNorth end, EastNorth direction, double residual) {
+            this.start = start;
+            this.end = end;
+            this.direction = direction;
+            this.residual = residual;
+        }
     }
 
     private static Set<Node> repeatedNodes(List<Node> nodes) {

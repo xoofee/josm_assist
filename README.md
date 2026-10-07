@@ -41,6 +41,16 @@ macOS / Ubuntu:
 - Tags are assigned when the user exits edit mode (e.g., by pressing Esc)
 - Prevents newly created elements from being greyed out and unselectable
 
+### 6. Simplify Way 2
+- Run with **Ctrl+Shift+Y**, from the Tools menu, or its toolbar button.
+- Select the ways to simplify. Selected, open ways with matching tags can be combined through a non-branching shared endpoint before simplification; both ways must be selected.
+- Tagged nodes, repeated nodes, relation-referenced nodes, and nodes shared with other ways are protected.
+- Configure separate maximum errors for ordinary simplification and rounded-corner fitting. Both default to 3 metres and can be remembered independently.
+- Rounded L-shaped runs are replaced by an untagged node at the intersection of their fitted straight lines. Ambiguous, parallel, or poorly fitted corners are left unchanged.
+- Combining, corner restoration, node removal, and cleanup are performed as one undoable operation.
+
+See [docs/SIMPLIFY_WAY_2.md](docs/SIMPLIFY_WAY_2.md) for the algorithm, safety rules, and examples.
+
 ## Installation
 
 1. Build the plugin:
