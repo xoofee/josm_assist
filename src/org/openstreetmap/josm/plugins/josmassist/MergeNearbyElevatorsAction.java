@@ -11,13 +11,14 @@ import org.openstreetmap.josm.command.Command;
 import org.openstreetmap.josm.data.UndoRedoHandler;
 import org.openstreetmap.josm.data.osm.DataSet;
 import org.openstreetmap.josm.gui.MainApplication;
+import org.openstreetmap.josm.spi.preferences.Config;
 import org.openstreetmap.josm.tools.ImageProvider;
 
 /** Merges nearby elevator nodes. */
 public class MergeNearbyElevatorsAction extends JosmAction {
 
     private static final double INITIAL_DISTANCE_METERS = 2.0;
-    private static double lastDistanceMeters = INITIAL_DISTANCE_METERS;
+    static final String PREF_DISTANCE = "josmassist.merge-elevators.distance";
 
     /** Constructs the elevator merge action. */
     public MergeNearbyElevatorsAction() {
@@ -37,7 +38,7 @@ public class MergeNearbyElevatorsAction extends JosmAction {
 
         String value = JOptionPane.showInputDialog(MainApplication.getMainFrame(),
                 tr("Merge elevator nodes within this distance (meters):"),
-                Double.toString(lastDistanceMeters));
+                Double.toString(getDistancePreference()));
         if (value == null) {
             return;
         }
@@ -51,11 +52,22 @@ public class MergeNearbyElevatorsAction extends JosmAction {
         if (!Double.isFinite(distance) || distance <= 0) {
             return;
         }
-        lastDistanceMeters = distance;
+        saveDistancePreference(distance);
 
         Command command = CleanupAction.createElevatorCommand(dataSet, distance);
         if (command != null) {
             UndoRedoHandler.getInstance().add(command);
+        }
+    }
+
+    static double getDistancePreference() {
+        double distance = Config.getPref().getDouble(PREF_DISTANCE, INITIAL_DISTANCE_METERS);
+        return Double.isFinite(distance) && distance > 0 ? distance : INITIAL_DISTANCE_METERS;
+    }
+
+    static void saveDistancePreference(double distance) {
+        if (Double.isFinite(distance) && distance > 0) {
+            Config.getPref().putDouble(PREF_DISTANCE, distance);
         }
     }
 

@@ -34,6 +34,7 @@ public class JosmAssistPlugin extends Plugin {
     private CleanUpAreasAction cleanUpAreasAction;
     private MergeNearbyElevatorsAction mergeNearbyElevatorsAction;
     private ElevatorRoadConnectorAction elevatorRoadConnectorAction;
+    private ConvertUnnamedRoomsToWallsAction convertUnnamedRoomsToWallsAction;
     private LevelProcessingHandler levelHandler;
     private EditModeExitListener editModeExitListener;
     private PolygonClickHandler clickHandler;
@@ -55,6 +56,7 @@ public class JosmAssistPlugin extends Plugin {
         cleanUpAreasAction = new CleanUpAreasAction();
         mergeNearbyElevatorsAction = new MergeNearbyElevatorsAction();
         elevatorRoadConnectorAction = new ElevatorRoadConnectorAction();
+        convertUnnamedRoomsToWallsAction = new ConvertUnnamedRoomsToWallsAction();
         levelHandler = new LevelProcessingHandler();
         editModeExitListener = new EditModeExitListener(levelHandler);
         clickHandler = new PolygonClickHandler();
@@ -72,6 +74,7 @@ public class JosmAssistPlugin extends Plugin {
                 assistMenu.add(simplifyWay2Action);
                 assistMenu.add(mergeNearbyElevatorsAction);
                 assistMenu.add(elevatorRoadConnectorAction);
+                assistMenu.add(convertUnnamedRoomsToWallsAction);
                 assistMenu.addSeparator();
                 assistMenu.add(toggleAction);
                 assistMenu.addSeparator();
@@ -92,6 +95,7 @@ public class JosmAssistPlugin extends Plugin {
                 MainApplication.getToolbar().register(cleanUpAreasAction);
                 MainApplication.getToolbar().register(mergeNearbyElevatorsAction);
                 MainApplication.getToolbar().register(elevatorRoadConnectorAction);
+                MainApplication.getToolbar().register(convertUnnamedRoomsToWallsAction);
                 // Refresh toolbar to make buttons visible
                 javax.swing.SwingUtilities.invokeLater(() -> {
                     try {

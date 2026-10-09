@@ -167,6 +167,113 @@ public class CleanupActionTest {
         assertTrue(second.isDeleted());
     }
 
+    @Test
+    public void convertsClosedElevatorWayAndCopiesTags() {
+        DataSet dataSet = new DataSet();
+        Node[] nodes = closedNodes(5);
+        Way way = way(dataSet, "Lift A", nodes);
+        way.put("highway", "elevator");
+        way.put("indoor", "room");
+        way.put("level", "-2;0");
+        way.put("ref", "preserve");
+
+        Command command = CleanupAction.createElevatorCommand(dataSet, 2);
+        assertNotNull(command);
+        assertTrue(command.executeCommand());
+
+        Node elevator = dataSet.getNodes().stream().filter(node -> !node.isDeleted()
+                && "elevator".equals(node.get("highway"))).findFirst().orElse(null);
+        assertNotNull(elevator);
+        assertEquals("-2;0", elevator.get("level"));
+        assertEquals("Lift A", elevator.get("name"));
+        assertEquals("preserve", way.get("ref"));
+        assertNull(way.get("highway"));
+        assertNull(way.get("indoor"));
+        assertEquals(averageLatitude(nodes), elevator.lat(), 1e-12);
+        assertEquals(averageLongitude(nodes), elevator.lon(), 1e-12);
+
+        command.undoCommand();
+        assertEquals("elevator", way.get("highway"));
+        assertEquals("room", way.get("indoor"));
+        assertEquals(0, dataSet.getNodes().stream().filter(node -> !node.isDeleted()
+                && "elevator".equals(node.get("highway"))).count());
+    }
+
+    @Test
+    public void doesNotCreateDuplicateForNearbyElevatorNode() {
+        DataSet dataSet = new DataSet();
+        Node[] nodes = closedNodes(5);
+        Way way = way(dataSet, "Lift A", nodes);
+        way.put("highway", "elevator");
+        way.put("level", "1");
+        Node existing = elevator(dataSet, averageLatitude(nodes), averageLongitude(nodes), "0", null);
+
+        Command command = CleanupAction.createElevatorCommand(dataSet, 2);
+        assertNotNull(command);
+        assertTrue(command.executeCommand());
+
+        assertFalse(existing.isDeleted());
+        assertEquals(1, dataSet.getNodes().stream().filter(node -> !node.isDeleted()
+                && "elevator".equals(node.get("highway"))).count());
+        assertNull(existing.get("name"));
+        assertNull(way.get("highway"));
+    }
+
+    @Test
+    public void mergesNodesCreatedFromMultipleElevatorWays() {
+        DataSet dataSet = new DataSet();
+        Node[] firstNodes = closedNodes(5);
+        Way firstWay = way(dataSet, "First", firstNodes);
+        firstWay.put("highway", "elevator");
+        firstWay.put("name", "First");
+        Node[] secondNodes = closedNodes(5);
+        for (Node node : secondNodes) {
+            node.setCoor(new LatLon(node.lat(), node.lon() + 0.00001));
+        }
+        Way secondWay = way(dataSet, "Second", secondNodes);
+        secondWay.put("highway", "elevator");
+        secondWay.put("name", "Second");
+
+        Command command = CleanupAction.createElevatorCommand(dataSet, 2);
+        assertNotNull(command);
+        assertTrue(command.executeCommand());
+
+        assertEquals(1, dataSet.getNodes().stream().filter(node -> !node.isDeleted()
+                && "elevator".equals(node.get("highway"))).count());
+        Node survivor = dataSet.getNodes().stream().filter(node -> !node.isDeleted()
+                && "elevator".equals(node.get("highway"))).findFirst().orElse(null);
+        assertEquals("First", survivor.get("name"));
+        assertNull(firstWay.get("highway"));
+        assertNull(secondWay.get("highway"));
+    }
+
+    @Test
+    public void skipsElevatorWaysWithoutKnownCoordinates() {
+        DataSet dataSet = new DataSet();
+        Node unknown = new Node(new LatLon(0, 0));
+        unknown.setCoor(null);
+        Node secondUnknown = new Node(new LatLon(0, 0.00001));
+        secondUnknown.setCoor(null);
+        Way way = new Way();
+        way.addNode(unknown);
+        way.addNode(secondUnknown);
+        way.addNode(unknown);
+        way.put("highway", "elevator");
+        dataSet.addPrimitiveRecursive(way);
+
+        assertNull(CleanupAction.createElevatorCommand(dataSet, 2));
+        assertEquals("elevator", way.get("highway"));
+    }
+
+    @Test
+    public void persistsMergeElevatorDistance() {
+        Config.getPref().put(MergeNearbyElevatorsAction.PREF_DISTANCE, "not-a-number");
+        assertEquals(2.0, MergeNearbyElevatorsAction.getDistancePreference(), 0.0);
+
+        MergeNearbyElevatorsAction.saveDistancePreference(7.5);
+        assertEquals(7.5, MergeNearbyElevatorsAction.getDistancePreference(), 0.0);
+    }
+
     private static Node elevator(DataSet dataSet, double lat, double lon, String level, String levelref) {
         Node node = new Node(new LatLon(lat, lon));
         node.put("highway", "elevator");
@@ -200,5 +307,21 @@ public class CleanupActionTest {
             nodes[i] = new Node(new LatLon(0, i * 0.00001));
         }
         return nodes;
+    }
+
+    private static double averageLatitude(Node[] nodes) {
+        double total = 0;
+        for (int i = 0; i < nodes.length - 1; i++) {
+            total += nodes[i].lat();
+        }
+        return total / (nodes.length - 1);
+    }
+
+    private static double averageLongitude(Node[] nodes) {
+        double total = 0;
+        for (int i = 0; i < nodes.length - 1; i++) {
+            total += nodes[i].lon();
+        }
+        return total / (nodes.length - 1);
     }
 }

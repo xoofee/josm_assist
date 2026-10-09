@@ -18,6 +18,7 @@ import java.util.Set;
 import javax.swing.JOptionPane;
 
 import org.openstreetmap.josm.actions.JosmAction;
+import org.openstreetmap.josm.command.AddCommand;
 import org.openstreetmap.josm.command.ChangeMembersCommand;
 import org.openstreetmap.josm.command.ChangePropertyCommand;
 import org.openstreetmap.josm.command.Command;
@@ -136,6 +137,25 @@ public class CleanupAction extends JosmAction {
         }
 
         List<Command> commands = new ArrayList<>();
+        for (Way way : dataSet.getWays()) {
+            if (!isConvertibleElevatorWay(way)) {
+                continue;
+            }
+            LatLon center = averageWayCenter(way);
+            if (center == null || hasNearbyElevator(elevators, center, distanceMeters)) {
+                addElevatorWayTagCleanup(commands, way);
+                continue;
+            }
+
+            Node elevator = new Node(center);
+            elevator.put("highway", "elevator");
+            copyNonEmptyTag(way, elevator, "level");
+            copyNonEmptyTag(way, elevator, "name");
+            elevators.add(elevator);
+            commands.add(new AddCommand(dataSet, elevator));
+            addElevatorWayTagCleanup(commands, way);
+        }
+
         for (List<Node> group : proximityGroups(elevators, distanceMeters)) {
             if (group.size() < 2) {
                 continue;
@@ -151,6 +171,40 @@ public class CleanupAction extends JosmAction {
             }
         }
         return commands.isEmpty() ? null : new SequenceCommand(tr("Merge nearby elevator nodes"), commands);
+    }
+
+    private static boolean isConvertibleElevatorWay(Way way) {
+        return way != null && !way.isDeleted() && !way.isIncomplete() && way.isClosed()
+                && "elevator".equals(way.get("highway")) && averageWayCenter(way) != null;
+    }
+
+    private static LatLon averageWayCenter(Way way) {
+        Set<Node> distinctNodes = new LinkedHashSet<>(way.getNodes());
+        distinctNodes.remove(null);
+        return distinctNodes.isEmpty() || distinctNodes.stream().anyMatch(node -> !node.isLatLonKnown())
+                ? null : averageCenter(distinctNodes);
+    }
+
+    private static boolean hasNearbyElevator(Collection<Node> elevators, LatLon center,
+            double distanceMeters) {
+        return elevators.stream().anyMatch(node -> node.isLatLonKnown()
+                && node.getCoor().greatCircleDistance(center) <= distanceMeters);
+    }
+
+    private static void copyNonEmptyTag(Way source, Node target, String key) {
+        String value = source.get(key);
+        if (value != null && !value.trim().isEmpty()) {
+            target.put(key, value);
+        }
+    }
+
+    private static void addElevatorWayTagCleanup(List<Command> commands, Way way) {
+        if (way.hasKey("highway")) {
+            commands.add(new ChangePropertyCommand(Collections.singleton(way), "highway", null));
+        }
+        if (way.hasKey("indoor")) {
+            commands.add(new ChangePropertyCommand(Collections.singleton(way), "indoor", null));
+        }
     }
 
     /** Creates the legacy combined cleanup command for existing callers and tests. */
