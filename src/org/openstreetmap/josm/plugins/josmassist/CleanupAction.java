@@ -96,7 +96,29 @@ public class CleanupAction extends JosmAction {
             }
         }
         return waysToDelete.isEmpty() ? null
-                : new DeleteCommand(dataSet, waysToDelete);
+                : new DeleteCommand(dataSet, collectAreaPrimitivesToDelete(dataSet, waysToDelete));
+    }
+
+    private static Collection<OsmPrimitive> collectAreaPrimitivesToDelete(DataSet dataSet,
+            List<Way> waysToDelete) {
+        Set<Way> areasToDelete = new HashSet<>(waysToDelete);
+        Set<OsmPrimitive> primitivesToDelete = new LinkedHashSet<>(waysToDelete);
+        Set<Node> candidateNodes = new LinkedHashSet<>();
+        for (Way way : waysToDelete) {
+            candidateNodes.addAll(way.getNodes());
+        }
+        for (Node node : candidateNodes) {
+            if (node == null || node.getDataSet() != dataSet || node.isDeleted()
+                    || node.isIncomplete() || node.isTagged()) {
+                continue;
+            }
+            boolean hasExternalReferrer = node.getReferrers().stream()
+                    .anyMatch(referrer -> !areasToDelete.contains(referrer));
+            if (!hasExternalReferrer) {
+                primitivesToDelete.add(node);
+            }
+        }
+        return primitivesToDelete;
     }
 
     /** Creates the nearby elevator merge command, or {@code null}. */

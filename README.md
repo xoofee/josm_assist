@@ -53,7 +53,9 @@ macOS / Ubuntu:
 See [docs/SIMPLIFY_WAY_2.md](docs/SIMPLIFY_WAY_2.md) for the algorithm, safety rules, and examples.
 
 ### 7. Cleanup tools
-- **Clean Up Areas** removes qualifying named area ways.
+- **Clean Up Areas** removes qualifying named area ways and their untagged,
+  safe orphan nodes. Nodes shared with other ways or relations, or carrying
+  tags, are preserved.
 - **Merge Nearby Elevators** merges nearby elevator nodes after asking for a distance threshold.
 - Both actions are available in the Assist menu and can be added independently from JOSM's toolbar configuration.
 

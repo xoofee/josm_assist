@@ -3,6 +3,7 @@ package org.openstreetmap.josm.plugins.josmassist;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.util.Arrays;
@@ -13,6 +14,8 @@ import org.openstreetmap.josm.command.Command;
 import org.openstreetmap.josm.data.coor.LatLon;
 import org.openstreetmap.josm.data.osm.DataSet;
 import org.openstreetmap.josm.data.osm.Node;
+import org.openstreetmap.josm.data.osm.Relation;
+import org.openstreetmap.josm.data.osm.RelationMember;
 import org.openstreetmap.josm.data.osm.Way;
 import org.openstreetmap.josm.data.projection.ProjectionRegistry;
 import org.openstreetmap.josm.data.projection.Projections;
@@ -46,6 +49,60 @@ public class CleanupActionTest {
 
         command.undoCommand();
         assertFalse(matching.isDeleted());
+    }
+
+    @Test
+    public void deletesOrphanAreaNodesAndUndoRestoresThem() {
+        DataSet dataSet = new DataSet();
+        Node[] nodes = closedNodes(5);
+        Way matching = way(dataSet, "商业区入口", nodes);
+
+        Command command = CleanupAction.createAreasCommand(dataSet);
+        assertNotNull(command);
+        assertTrue(command.executeCommand());
+        assertTrue(matching.isDeleted());
+        for (Node node : nodes) {
+            assertTrue(node.isDeleted());
+        }
+
+        command.undoCommand();
+        assertFalse(matching.isDeleted());
+        for (Node node : nodes) {
+            assertFalse(node.isDeleted());
+        }
+    }
+
+    @Test
+    public void preservesSharedTaggedAndRelationReferencedAreaNodes() {
+        DataSet dataSet = new DataSet();
+        Node[] nodes = closedNodes(5);
+        nodes[1].put("amenity", "bench");
+        Way matching = way(dataSet, "商业区入口", nodes);
+        Node shared = nodes[2];
+        way(dataSet, null, shared, new Node(new LatLon(1, 1)));
+        Relation relation = new Relation();
+        relation.addMember(new RelationMember("point", nodes[3]));
+        dataSet.addPrimitive(relation);
+
+        Command command = CleanupAction.createAreasCommand(dataSet);
+        assertTrue(command.executeCommand());
+
+        assertTrue(matching.isDeleted());
+        assertTrue(nodes[0].isDeleted());
+        assertFalse(nodes[1].isDeleted());
+        assertFalse(nodes[2].isDeleted());
+        assertFalse(nodes[3].isDeleted());
+        assertTrue(nodes[4].isDeleted());
+    }
+
+    @Test
+    public void returnsNullWhenThereAreNoQualifyingAreaWays() {
+        DataSet dataSet = new DataSet();
+        way(dataSet, "商业区入口", openNodes(5));
+        way(dataSet, null, closedNodes(5));
+        way(dataSet, "商业区入口", closedNodes(4));
+
+        assertNull(CleanupAction.createAreasCommand(dataSet));
     }
 
     @Test
