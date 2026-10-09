@@ -122,7 +122,7 @@ public class CleanupAction extends JosmAction {
         return primitivesToDelete;
     }
 
-    /** Creates the nearby elevator merge command, or {@code null}. */
+    /** Creates the closed-way conversion and nearby elevator merge command, or {@code null}. */
     static Command createElevatorCommand(DataSet dataSet, double distanceMeters) {
         if (dataSet == null || !Double.isFinite(distanceMeters) || distanceMeters <= 0) {
             return null;
@@ -138,7 +138,7 @@ public class CleanupAction extends JosmAction {
 
         List<Command> commands = new ArrayList<>();
         for (Way way : dataSet.getWays()) {
-            if (!isConvertibleElevatorWay(way)) {
+            if (!isConvertibleElevatorOrStepsWay(way)) {
                 continue;
             }
             LatLon center = averageWayCenter(way);
@@ -173,9 +173,10 @@ public class CleanupAction extends JosmAction {
         return commands.isEmpty() ? null : new SequenceCommand(tr("Merge nearby elevator nodes"), commands);
     }
 
-    private static boolean isConvertibleElevatorWay(Way way) {
+    private static boolean isConvertibleElevatorOrStepsWay(Way way) {
         return way != null && !way.isDeleted() && !way.isIncomplete() && way.isClosed()
-                && "elevator".equals(way.get("highway")) && averageWayCenter(way) != null;
+                && ("elevator".equals(way.get("highway")) || "steps".equals(way.get("highway")))
+                && averageWayCenter(way) != null;
     }
 
     private static LatLon averageWayCenter(Way way) {

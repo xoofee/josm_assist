@@ -220,6 +220,56 @@ public class CleanupActionTest {
     }
 
     @Test
+    public void convertsClosedStepsWayToElevatorAndCopiesTags() {
+        DataSet dataSet = new DataSet();
+        Node[] nodes = closedNodes(5);
+        Way way = way(dataSet, "Steps Lift", nodes);
+        way.put("highway", "steps");
+        way.put("indoor", "room");
+        way.put("level", "0;1");
+        way.put("ref", "steps-ref");
+
+        Command command = CleanupAction.createElevatorCommand(dataSet, 2);
+        assertNotNull(command);
+        assertTrue(command.executeCommand());
+
+        Node elevator = dataSet.getNodes().stream().filter(node -> !node.isDeleted()
+                && "elevator".equals(node.get("highway"))).findFirst().orElse(null);
+        assertNotNull(elevator);
+        assertEquals("0;1", elevator.get("level"));
+        assertEquals("Steps Lift", elevator.get("name"));
+        assertEquals("steps-ref", way.get("ref"));
+        assertNull(way.get("highway"));
+        assertNull(way.get("indoor"));
+        assertEquals(averageLatitude(nodes), elevator.lat(), 1e-12);
+        assertEquals(averageLongitude(nodes), elevator.lon(), 1e-12);
+
+        command.undoCommand();
+        assertEquals("steps", way.get("highway"));
+        assertEquals("room", way.get("indoor"));
+        assertEquals(0, dataSet.getNodes().stream().filter(node -> !node.isDeleted()
+                && "elevator".equals(node.get("highway"))).count());
+    }
+
+    @Test
+    public void stepsWayUsesNearbyExistingElevatorWithoutCreatingDuplicate() {
+        DataSet dataSet = new DataSet();
+        Node[] nodes = closedNodes(5);
+        Way way = way(dataSet, "Steps", nodes);
+        way.put("highway", "steps");
+        Node existing = elevator(dataSet, averageLatitude(nodes), averageLongitude(nodes), "2", null);
+
+        Command command = CleanupAction.createElevatorCommand(dataSet, 2);
+        assertNotNull(command);
+        assertTrue(command.executeCommand());
+
+        assertFalse(existing.isDeleted());
+        assertEquals(1, dataSet.getNodes().stream().filter(node -> !node.isDeleted()
+                && "elevator".equals(node.get("highway"))).count());
+        assertNull(way.get("highway"));
+    }
+
+    @Test
     public void mergesNodesCreatedFromMultipleElevatorWays() {
         DataSet dataSet = new DataSet();
         Node[] firstNodes = closedNodes(5);
