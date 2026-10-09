@@ -6,12 +6,20 @@ available in the Tools menu and toolbar, and uses **Ctrl+Shift+Y**.
 
 ## What it does
 
-The action works only on selected ways. Before simplifying, it can combine a
-selected chain such as `AB` + `BCD` into `ABCD`. Combination is allowed only
-when all participating ways are selected, open, relation-free, have exactly
-matching tags, and meet at a non-branching endpoint used by exactly two ways.
-The shared endpoint is included once. Unselected neighboring ways are not
-changed, so select every way that should participate in pre-combination.
+The action has two scope modes. If at least one selected way is a complete
+`highway=service` way, it uses the complete selected ways. Otherwise, it
+discovers every complete, non-deleted `highway=service` way in the current edit
+data set, then includes every complete, non-deleted way connected to those
+service ways through shared nodes, transitively. The fallback uses node
+identity and JOSM parent-way relationships; geometric proximity and crossing
+segments do not create a connection. Scope discovery does not modify the
+current selection.
+
+Before simplifying, it can combine an in-scope chain such as `AB` + `BCD`
+into `ABCD`. Combination is allowed only when all participating ways are in
+the scope, open, relation-free, have exactly matching tags, and meet at a
+non-branching endpoint used by exactly two ways. The shared endpoint is
+included once. Incomplete or deleted ways are skipped.
 
 The resulting paths are simplified with a Douglas–Peucker-style, metre-based
 error test. The first and last nodes, tagged nodes, repeated nodes, nodes
@@ -87,8 +95,9 @@ undoable operation.
 
 ## Limitations
 
-The action does not combine unselected ways. A chain intended for pre-
-combination must therefore be selected in full. It also skips closed ways,
-relation-associated geometry, protected-node spans, parallel fitted runs,
-degenerate lines, and corner candidates whose residual or location is
-ambiguous.
+In selected-service mode, a chain intended for pre-combination must be
+selected in full. In fallback mode, connected ways are discovered
+automatically, but only within the current edit data set and only through
+shared node identity. The action also skips closed ways, relation-associated
+geometry, protected-node spans, parallel fitted runs, degenerate lines, and
+corner candidates whose residual or location is ambiguous.

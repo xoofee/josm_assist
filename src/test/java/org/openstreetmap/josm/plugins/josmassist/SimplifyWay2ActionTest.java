@@ -234,6 +234,84 @@ public class SimplifyWay2ActionTest {
         assertEquals(2.5, parameters.cornerError, 0.001);
     }
 
+    @Test
+    public void resolvesAllDisconnectedServiceWaysWhenNothingIsSelected() {
+        DataSet dataSet = new DataSet();
+        Way first = serviceWay(dataSet, node(0, 0), node(0, 0.00001));
+        Way second = serviceWay(dataSet, node(1, 1), node(1, 1.00001));
+
+        List<Way> resolved = SimplifyWay2Action.resolveInputWays(dataSet, dataSet.getSelectedWays());
+
+        assertEquals(2, resolved.size());
+        assertTrue(resolved.contains(first));
+        assertTrue(resolved.contains(second));
+    }
+
+    @Test
+    public void resolvesTransitivelyConnectedWaysButNotUnrelatedWays() {
+        DataSet dataSet = new DataSet();
+        Node a = node(0, 0);
+        Node b = node(0, 0.00001);
+        Node c = node(0, 0.00002);
+        Node d = node(0, 0.00003);
+        Way service = serviceWay(dataSet, a, b);
+        Way connector = way(dataSet, b, c);
+        Way secondConnector = way(dataSet, c, d);
+        Way unrelated = way(dataSet, node(1, 1), node(1, 1.00001));
+
+        List<Way> resolved = SimplifyWay2Action.resolveInputWays(dataSet, dataSet.getSelectedWays());
+
+        assertEquals(Arrays.asList(service, connector, secondConnector), resolved);
+        assertFalse(resolved.contains(unrelated));
+    }
+
+    @Test
+    public void usesFallbackWhenOnlyNonServiceWaysAreSelected() {
+        DataSet dataSet = new DataSet();
+        Way service = serviceWay(dataSet, node(0, 0), node(0, 0.00001));
+        Way selectedNonService = way(dataSet, node(1, 1), node(1, 1.00001));
+        dataSet.addSelected(selectedNonService);
+
+        List<Way> resolved = SimplifyWay2Action.resolveInputWays(dataSet, dataSet.getSelectedWays());
+
+        assertEquals(Arrays.asList(service), resolved);
+        assertTrue(dataSet.getSelectedWays().contains(selectedNonService));
+    }
+
+    @Test
+    public void selectedServiceWayKeepsSelectedWayScope() {
+        DataSet dataSet = new DataSet();
+        Way selectedService = serviceWay(dataSet, node(0, 0), node(0, 0.00001));
+        Way selectedOther = way(dataSet, node(0, 0.00001), node(0, 0.00002));
+        Way unrelatedService = serviceWay(dataSet, node(1, 1), node(1, 1.00001));
+        dataSet.addSelected(selectedService);
+        dataSet.addSelected(selectedOther);
+
+        List<Way> resolved = SimplifyWay2Action.resolveInputWays(dataSet, dataSet.getSelectedWays());
+
+        assertEquals(Arrays.asList(selectedService, selectedOther), resolved);
+        assertFalse(resolved.contains(unrelatedService));
+    }
+
+    @Test
+    public void excludesDeletedWaysFromFallback() {
+        DataSet dataSet = new DataSet();
+        Way usable = serviceWay(dataSet, node(0, 0), node(0, 0.00001));
+        Way deleted = serviceWay(dataSet, node(1, 1), node(1, 1.00001));
+        deleted.setDeleted(true);
+        List<Way> resolved = SimplifyWay2Action.resolveInputWays(dataSet, dataSet.getSelectedWays());
+
+        assertEquals(Arrays.asList(usable), resolved);
+    }
+
+    @Test
+    public void returnsEmptyFallbackScopeWithoutServiceSeeds() {
+        DataSet dataSet = new DataSet();
+        way(dataSet, node(0, 0), node(0, 0.00001));
+
+        assertTrue(SimplifyWay2Action.resolveInputWays(dataSet, dataSet.getSelectedWays()).isEmpty());
+    }
+
     private static Node node(double lat, double lon) {
         return new Node(new LatLon(lat, lon));
     }
@@ -246,4 +324,11 @@ public class SimplifyWay2ActionTest {
         dataSet.addPrimitiveRecursive(way);
         return way;
     }
+
+    private static Way serviceWay(DataSet dataSet, Node... nodes) {
+        Way way = way(dataSet, nodes);
+        way.put("highway", "service");
+        return way;
+    }
+
 }

@@ -5,9 +5,11 @@ import static org.openstreetmap.josm.tools.I18n.tr;
 import java.awt.GridBagLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -79,8 +81,7 @@ public class SimplifyWay2Action extends JosmAction {
             return;
         }
 
-        List<Way> ways = new ArrayList<>(dataSet.getSelectedWays());
-        ways.removeIf(Way::isIncomplete);
+        List<Way> ways = resolveInputWays(dataSet, dataSet.getSelectedWays());
         if (ways.isEmpty()) {
             return;
         }
@@ -94,6 +95,47 @@ public class SimplifyWay2Action extends JosmAction {
         if (command != null) {
             UndoRedoHandler.getInstance().add(command);
         }
+    }
+
+    /** Resolves the ways covered by the action without changing the selection. */
+    static List<Way> resolveInputWays(DataSet dataSet, Collection<Way> selectedWays) {
+        LinkedHashSet<Way> selected = selectedWays.stream()
+                .filter(way -> isUsableWay(dataSet, way))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (selected.stream().anyMatch(SimplifyWay2Action::isServiceWay)) {
+            return new ArrayList<>(selected);
+        }
+
+        LinkedHashSet<Way> resolved = collectServiceWays(dataSet);
+        if (resolved.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Deque<Way> pending = new ArrayDeque<>(resolved);
+        while (!pending.isEmpty()) {
+            Way current = pending.removeFirst();
+            for (Node node : current.getNodes()) {
+                for (Way connected : node.getParentWays()) {
+                    if (isUsableWay(dataSet, connected) && resolved.add(connected)) {
+                        pending.addLast(connected);
+                    }
+                }
+            }
+        }
+        return new ArrayList<>(resolved);
+    }
+
+    private static LinkedHashSet<Way> collectServiceWays(DataSet dataSet) {
+        return dataSet.getWays().stream()
+                .filter(way -> isUsableWay(dataSet, way) && isServiceWay(way))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private static boolean isServiceWay(Way way) {
+        return "service".equals(way.get("highway"));
+    }
+
+    private static boolean isUsableWay(DataSet dataSet, Way way) {
+        return way != null && way.getDataSet() == dataSet && !way.isIncomplete() && !way.isDeleted();
     }
 
     /**

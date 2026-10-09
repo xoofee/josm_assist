@@ -68,15 +68,16 @@ public class JosmAssistPlugin extends Plugin {
                         KeyEvent.VK_A,
                         MainApplication.getMenu().getDefaultMenuPos(),
                         ht("/Menu/Assist"));
+                assistMenu.add(cleanUpAreasAction);
+                assistMenu.add(simplifyWay2Action);
+                assistMenu.add(mergeNearbyElevatorsAction);
+                assistMenu.add(elevatorRoadConnectorAction);
+                assistMenu.addSeparator();
                 assistMenu.add(toggleAction);
                 assistMenu.addSeparator();
                 assistMenu.add(wayCombineAction);
-                assistMenu.add(markVerifiedAction);
-                assistMenu.add(simplifyWay2Action);
                 assistMenu.add(movePreservingMetricAction);
-                assistMenu.add(cleanUpAreasAction);
-                assistMenu.add(mergeNearbyElevatorsAction);
-                assistMenu.add(elevatorRoadConnectorAction);
+                assistMenu.add(markVerifiedAction);
             }
         } catch (Exception e) {
             System.err.println("Could not add menu item: " + e.getMessage());
