@@ -42,7 +42,7 @@ macOS / Ubuntu:
 - Prevents newly created elements from being greyed out and unselectable
 
 ### 6. Simplify Way 2
-- Run with **Ctrl+Shift+Y**, from the Tools menu, or its toolbar button.
+- Run with **Ctrl+Shift+Y**, from the Assist menu, or its toolbar button.
 - Select the ways to simplify. Selected, open ways with matching tags can be combined through a non-branching shared endpoint before simplification; both ways must be selected.
 - Tagged nodes, repeated nodes, relation-referenced nodes, and nodes shared with other ways are protected.
 - Configure separate maximum errors for ordinary simplification and rounded-corner fitting. Both default to 3 metres and can be remembered independently.
@@ -51,6 +51,11 @@ macOS / Ubuntu:
 - Combining, corner restoration, node removal, and cleanup are performed as one undoable operation.
 
 See [docs/SIMPLIFY_WAY_2.md](docs/SIMPLIFY_WAY_2.md) for the algorithm, safety rules, and examples.
+
+### 7. Cleanup tools
+- **Clean Up Areas** removes qualifying named area ways.
+- **Merge Nearby Elevators** merges nearby elevator nodes after asking for a distance threshold.
+- Both actions are available in the Assist menu and can be added independently from JOSM's toolbar configuration.
 
 ## Installation
 

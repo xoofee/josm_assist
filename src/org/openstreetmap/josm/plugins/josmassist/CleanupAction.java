@@ -81,15 +81,13 @@ public class CleanupAction extends JosmAction {
         }
     }
 
-    /** Creates the complete undoable cleanup command, or {@code null}. */
-    static Command createCommand(DataSet dataSet, double distanceMeters) {
-        if (dataSet == null || !Double.isFinite(distanceMeters) || distanceMeters <= 0) {
+    /** Creates the area cleanup command, or {@code null}. */
+    static Command createAreasCommand(DataSet dataSet) {
+        if (dataSet == null) {
             return null;
         }
 
-        List<Command> commands = new ArrayList<>();
         List<Way> waysToDelete = new ArrayList<>();
-        List<Node> elevators = new ArrayList<>();
         for (Way way : dataSet.getWays()) {
             if (!way.isDeleted() && !way.isIncomplete() && way.isClosed()
                     && way.getNodesCount() >= 5 && way.get("name") != null
@@ -97,6 +95,17 @@ public class CleanupAction extends JosmAction {
                 waysToDelete.add(way);
             }
         }
+        return waysToDelete.isEmpty() ? null
+                : new DeleteCommand(dataSet, waysToDelete);
+    }
+
+    /** Creates the nearby elevator merge command, or {@code null}. */
+    static Command createElevatorCommand(DataSet dataSet, double distanceMeters) {
+        if (dataSet == null || !Double.isFinite(distanceMeters) || distanceMeters <= 0) {
+            return null;
+        }
+
+        List<Node> elevators = new ArrayList<>();
         for (Node node : dataSet.getNodes()) {
             if (!node.isDeleted() && !node.isIncomplete() && "elevator".equals(node.get("highway"))
                     && node.isLatLonKnown()) {
@@ -104,6 +113,7 @@ public class CleanupAction extends JosmAction {
             }
         }
 
+        List<Command> commands = new ArrayList<>();
         for (List<Node> group : proximityGroups(elevators, distanceMeters)) {
             if (group.size() < 2) {
                 continue;
@@ -118,8 +128,19 @@ public class CleanupAction extends JosmAction {
                 commands.add(merge);
             }
         }
-        if (!waysToDelete.isEmpty()) {
-            commands.add(new DeleteCommand(dataSet, waysToDelete));
+        return commands.isEmpty() ? null : new SequenceCommand(tr("Merge nearby elevator nodes"), commands);
+    }
+
+    /** Creates the legacy combined cleanup command for existing callers and tests. */
+    static Command createCommand(DataSet dataSet, double distanceMeters) {
+        List<Command> commands = new ArrayList<>();
+        Command elevatorCommand = createElevatorCommand(dataSet, distanceMeters);
+        if (elevatorCommand != null) {
+            commands.add(elevatorCommand);
+        }
+        Command areaCommand = createAreasCommand(dataSet);
+        if (areaCommand != null) {
+            commands.add(areaCommand);
         }
         return commands.isEmpty() ? null : new SequenceCommand(tr("Clean up areas and elevators"), commands);
     }
@@ -166,7 +187,7 @@ public class CleanupAction extends JosmAction {
             commands.add(new ChangeMembersCommand(relation, replacement));
         }
 
-        Map<String, String> tags = mergedTags(nodes, combinedLevel, combinedLevelref);
+        Map<String, String> tags = mergedTags(orderByParentWay(nodes), combinedLevel, combinedLevelref);
         if (!tags.isEmpty()) {
             commands.add(new ChangePropertyCommand(Collections.singleton(target), tags));
         }
@@ -200,17 +221,38 @@ public class CleanupAction extends JosmAction {
     }
 
     private static Node selectTargetNode(List<Node> nodes) {
-        for (Node node : nodes) {
+        // DataSet iteration order is not way order. Preserve a stable member
+        // from a common parent way when possible.
+        List<Node> orderedNodes = orderByParentWay(nodes);
+        for (Node node : orderedNodes) {
             if (!node.isNew() && !node.getReferrers().isEmpty()) {
                 return node;
             }
         }
-        for (Node node : nodes) {
+        for (Node node : orderedNodes) {
             if (!node.isNew()) {
                 return node;
             }
         }
-        return nodes.get(0);
+        return orderedNodes.get(0);
+    }
+
+    private static List<Node> orderByParentWay(List<Node> nodes) {
+        if (nodes.size() < 2) {
+            return nodes;
+        }
+        for (OsmPrimitive referrer : nodes.get(0).getReferrers()) {
+            if (!(referrer instanceof Way)) {
+                continue;
+            }
+            List<Node> wayNodes = ((Way) referrer).getNodes();
+            if (nodes.stream().allMatch(wayNodes::contains)) {
+                List<Node> ordered = new ArrayList<>(nodes);
+                ordered.sort(Comparator.comparingInt(wayNodes::indexOf));
+                return ordered;
+            }
+        }
+        return nodes;
     }
 
     private static String combinedTag(List<Node> nodes, String key, boolean numericSort) {

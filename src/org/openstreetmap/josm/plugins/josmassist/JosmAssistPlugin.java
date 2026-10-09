@@ -1,11 +1,13 @@
 package org.openstreetmap.josm.plugins.josmassist;
 
+import static org.openstreetmap.josm.gui.help.HelpUtil.ht;
 import static org.openstreetmap.josm.tools.I18n.tr;
 
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 
 import javax.swing.JCheckBoxMenuItem;
+import javax.swing.JMenu;
 import javax.swing.JMenuItem;
 
 import org.openstreetmap.josm.actions.ToggleAction;
@@ -29,7 +31,8 @@ public class JosmAssistPlugin extends Plugin {
     private MarkVerifiedAction markVerifiedAction;
     private SimplifyWay2Action simplifyWay2Action;
     private MovePreservingMetricAction movePreservingMetricAction;
-    private CleanupAction cleanupAction;
+    private CleanUpAreasAction cleanUpAreasAction;
+    private MergeNearbyElevatorsAction mergeNearbyElevatorsAction;
     private ElevatorRoadConnectorAction elevatorRoadConnectorAction;
     private LevelProcessingHandler levelHandler;
     private EditModeExitListener editModeExitListener;
@@ -49,23 +52,31 @@ public class JosmAssistPlugin extends Plugin {
         markVerifiedAction = new MarkVerifiedAction();
         simplifyWay2Action = new SimplifyWay2Action();
         movePreservingMetricAction = new MovePreservingMetricAction();
-        cleanupAction = new CleanupAction();
+        cleanUpAreasAction = new CleanUpAreasAction();
+        mergeNearbyElevatorsAction = new MergeNearbyElevatorsAction();
         elevatorRoadConnectorAction = new ElevatorRoadConnectorAction();
         levelHandler = new LevelProcessingHandler();
         editModeExitListener = new EditModeExitListener(levelHandler);
         clickHandler = new PolygonClickHandler();
         
-        // Add menu items to tools menu
+        // Add menu items to the top-level Assist menu
         try {
-            if (MainApplication.getMenu() != null && MainApplication.getMenu().toolsMenu != null) {
-                MainApplication.getMenu().toolsMenu.add(toggleAction);
-                MainApplication.getMenu().toolsMenu.addSeparator();
-                MainApplication.getMenu().toolsMenu.add(wayCombineAction);
-                MainApplication.getMenu().toolsMenu.add(markVerifiedAction);
-                MainApplication.getMenu().toolsMenu.add(simplifyWay2Action);
-                MainApplication.getMenu().toolsMenu.add(movePreservingMetricAction);
-                MainApplication.getMenu().toolsMenu.add(cleanupAction);
-                MainApplication.getMenu().toolsMenu.add(elevatorRoadConnectorAction);
+            if (MainApplication.getMenu() != null) {
+                final JMenu assistMenu = MainApplication.getMenu().addMenu(
+                        "Assist",
+                        tr("Assist"),
+                        KeyEvent.VK_A,
+                        MainApplication.getMenu().getDefaultMenuPos(),
+                        ht("/Menu/Assist"));
+                assistMenu.add(toggleAction);
+                assistMenu.addSeparator();
+                assistMenu.add(wayCombineAction);
+                assistMenu.add(markVerifiedAction);
+                assistMenu.add(simplifyWay2Action);
+                assistMenu.add(movePreservingMetricAction);
+                assistMenu.add(cleanUpAreasAction);
+                assistMenu.add(mergeNearbyElevatorsAction);
+                assistMenu.add(elevatorRoadConnectorAction);
             }
         } catch (Exception e) {
             System.err.println("Could not add menu item: " + e.getMessage());
@@ -77,7 +88,8 @@ public class JosmAssistPlugin extends Plugin {
                 MainApplication.getToolbar().register(toggleAction);
                 MainApplication.getToolbar().register(wayCombineAction);
                 MainApplication.getToolbar().register(simplifyWay2Action);
-                MainApplication.getToolbar().register(cleanupAction);
+                MainApplication.getToolbar().register(cleanUpAreasAction);
+                MainApplication.getToolbar().register(mergeNearbyElevatorsAction);
                 MainApplication.getToolbar().register(elevatorRoadConnectorAction);
                 // Refresh toolbar to make buttons visible
                 javax.swing.SwingUtilities.invokeLater(() -> {
