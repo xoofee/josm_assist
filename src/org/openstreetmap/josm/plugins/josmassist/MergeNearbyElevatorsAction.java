@@ -54,10 +54,15 @@ public class MergeNearbyElevatorsAction extends JosmAction {
         }
         saveDistancePreference(distance);
 
-        Command command = CleanupAction.createElevatorCommand(dataSet, distance);
+        Command command = createCommand(dataSet, distance);
         if (command != null) {
             UndoRedoHandler.getInstance().add(command);
         }
+    }
+
+    /** Creates a command that merges existing elevator nodes only. */
+    static Command createCommand(DataSet dataSet, double distanceMeters) {
+        return ElevatorNodeMerger.createCommand(dataSet, distanceMeters);
     }
 
     static double getDistancePreference() {

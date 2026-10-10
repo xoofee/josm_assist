@@ -32,6 +32,7 @@ public class JosmAssistPlugin extends Plugin {
     private SimplifyWay2Action simplifyWay2Action;
     private MovePreservingMetricAction movePreservingMetricAction;
     private CleanUpAreasAction cleanUpAreasAction;
+    private ConvertElevatorWaysAction convertElevatorWaysAction;
     private MergeNearbyElevatorsAction mergeNearbyElevatorsAction;
     private ElevatorRoadConnectorAction elevatorRoadConnectorAction;
     private ConvertUnnamedRoomsToWallsAction convertUnnamedRoomsToWallsAction;
@@ -54,6 +55,7 @@ public class JosmAssistPlugin extends Plugin {
         simplifyWay2Action = new SimplifyWay2Action();
         movePreservingMetricAction = new MovePreservingMetricAction();
         cleanUpAreasAction = new CleanUpAreasAction();
+        convertElevatorWaysAction = new ConvertElevatorWaysAction();
         mergeNearbyElevatorsAction = new MergeNearbyElevatorsAction();
         elevatorRoadConnectorAction = new ElevatorRoadConnectorAction();
         convertUnnamedRoomsToWallsAction = new ConvertUnnamedRoomsToWallsAction();
@@ -72,6 +74,7 @@ public class JosmAssistPlugin extends Plugin {
                         ht("/Menu/Assist"));
                 assistMenu.add(cleanUpAreasAction);
                 assistMenu.add(simplifyWay2Action);
+                assistMenu.add(convertElevatorWaysAction);
                 assistMenu.add(mergeNearbyElevatorsAction);
                 assistMenu.add(elevatorRoadConnectorAction);
                 assistMenu.add(convertUnnamedRoomsToWallsAction);
@@ -93,6 +96,7 @@ public class JosmAssistPlugin extends Plugin {
                 MainApplication.getToolbar().register(wayCombineAction);
                 MainApplication.getToolbar().register(simplifyWay2Action);
                 MainApplication.getToolbar().register(cleanUpAreasAction);
+                MainApplication.getToolbar().register(convertElevatorWaysAction);
                 MainApplication.getToolbar().register(mergeNearbyElevatorsAction);
                 MainApplication.getToolbar().register(elevatorRoadConnectorAction);
                 MainApplication.getToolbar().register(convertUnnamedRoomsToWallsAction);
