@@ -10,6 +10,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +35,7 @@ import org.openstreetmap.josm.data.osm.Relation;
 import org.openstreetmap.josm.data.osm.RelationMember;
 import org.openstreetmap.josm.data.osm.Way;
 import org.openstreetmap.josm.gui.MainApplication;
+import org.openstreetmap.josm.data.projection.ProjectionRegistry;
 import org.openstreetmap.josm.tools.ImageProvider;
 
 /** Removes unwanted area ways and merges nearby elevator nodes. */
@@ -137,12 +139,19 @@ public class CleanupAction extends JosmAction {
         }
 
         List<Command> commands = new ArrayList<>();
+        Map<Node, Map<String, String>> nearbyTagUpdates = new LinkedHashMap<>();
         for (Way way : dataSet.getWays()) {
             if (!isConvertibleElevatorOrStepsWay(way)) {
                 continue;
             }
             LatLon center = averageWayCenter(way);
-            if (center == null || hasNearbyElevator(elevators, center, distanceMeters)) {
+            Node nearby = findNearbyElevator(elevators, center, distanceMeters);
+            if (nearby != null) {
+                Map<String, String> tags = nearbyTagUpdates.computeIfAbsent(nearby,
+                        node -> new HashMap<>());
+                mergeWayTag(tags, nearby.get("level"), way.get("level"), "level", true);
+                mergeWayTag(tags, nearby.get("level:ref"), way.get("level:ref"), "level:ref", false);
+                mergeFirstNonEmptyTag(tags, nearby, way, "name");
                 addElevatorWayTagCleanup(commands, way);
                 continue;
             }
@@ -150,10 +159,18 @@ public class CleanupAction extends JosmAction {
             Node elevator = new Node(center);
             elevator.put("highway", "elevator");
             copyNonEmptyTag(way, elevator, "level");
+            copyNonEmptyTag(way, elevator, "level:ref");
             copyNonEmptyTag(way, elevator, "name");
             elevators.add(elevator);
             commands.add(new AddCommand(dataSet, elevator));
             addElevatorWayTagCleanup(commands, way);
+        }
+
+        for (Map.Entry<Node, Map<String, String>> update : nearbyTagUpdates.entrySet()) {
+            if (!update.getValue().isEmpty()) {
+                commands.add(new ChangePropertyCommand(dataSet,
+                        Collections.singleton(update.getKey()), update.getValue()));
+            }
         }
 
         for (List<Node> group : proximityGroups(elevators, distanceMeters)) {
@@ -163,9 +180,10 @@ public class CleanupAction extends JosmAction {
             Node target = selectTargetNode(group);
             LatLon center = averageCenter(group);
             String combinedLevel = combinedTag(group, "level", true);
-            String combinedLevelref = combinedTag(group, "levelref", false);
+            String combinedLevelRef = combinedTag(group, "level:ref", false);
 
-            Command merge = createNonInteractiveMerge(group, target, center, combinedLevel, combinedLevelref);
+            Command merge = createNonInteractiveMerge(dataSet, group, target, center, combinedLevel,
+                    combinedLevelRef);
             if (merge != null) {
                 commands.add(merge);
             }
@@ -186,10 +204,57 @@ public class CleanupAction extends JosmAction {
                 ? null : averageCenter(distinctNodes);
     }
 
-    private static boolean hasNearbyElevator(Collection<Node> elevators, LatLon center,
+    private static Node findNearbyElevator(Collection<Node> elevators, LatLon center,
             double distanceMeters) {
-        return elevators.stream().anyMatch(node -> node.isLatLonKnown()
-                && node.getCoor().greatCircleDistance(center) <= distanceMeters);
+        return elevators.stream()
+                .filter(node -> node.isLatLonKnown()
+                        && node.getCoor().greatCircleDistance(center) <= distanceMeters)
+                .min(Comparator.comparingDouble(node -> node.getCoor().greatCircleDistance(center)))
+                .orElse(null);
+    }
+
+    private static void mergeWayTag(Map<String, String> updates, String existing, String added,
+            String key, boolean numericSort) {
+        if (added == null || added.trim().isEmpty()) {
+            return;
+        }
+        String current = updates.containsKey(key) ? updates.get(key) : existing;
+        updates.put(key, combineTagValues(current, added, numericSort));
+    }
+
+    private static void mergeFirstNonEmptyTag(Map<String, String> updates, Node target, Way source,
+            String key) {
+        if (!updates.containsKey(key) && (target.get(key) == null || target.get(key).trim().isEmpty())) {
+            String value = source.get(key);
+            if (value != null && !value.trim().isEmpty()) {
+                updates.put(key, value);
+            }
+        }
+    }
+
+    private static String combineTagValues(String first, String second, boolean numericSort) {
+        LinkedHashSet<String> values = new LinkedHashSet<>();
+        addTagParts(values, first);
+        addTagParts(values, second);
+        if (numericSort) {
+            List<String> sorted = new ArrayList<>(values);
+            sorted.sort(Comparator.comparingDouble(CleanupAction::numericLevel)
+                    .thenComparing(String::compareTo));
+            values = new LinkedHashSet<>(sorted);
+        }
+        return String.join(";", values);
+    }
+
+    private static void addTagParts(Set<String> values, String value) {
+        if (value == null) {
+            return;
+        }
+        for (String part : value.split(";")) {
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty()) {
+                values.add(trimmed);
+            }
+        }
     }
 
     private static void copyNonEmptyTag(Way source, Node target, String key) {
@@ -222,8 +287,8 @@ public class CleanupAction extends JosmAction {
         return commands.isEmpty() ? null : new SequenceCommand(tr("Clean up areas and elevators"), commands);
     }
 
-    private static Command createNonInteractiveMerge(List<Node> nodes, Node target, LatLon center,
-            String combinedLevel, String combinedLevelref) {
+    private static Command createNonInteractiveMerge(DataSet dataSet, List<Node> nodes, Node target, LatLon center,
+            String combinedLevel, String combinedLevelRef) {
         Set<Node> nodesToDelete = new HashSet<>(nodes);
         nodesToDelete.remove(target);
         List<Command> commands = new ArrayList<>();
@@ -231,6 +296,9 @@ public class CleanupAction extends JosmAction {
         Set<Way> parentWays = new HashSet<>();
         Set<Relation> parentRelations = new HashSet<>();
         for (Node node : nodesToDelete) {
+            if (node.getDataSet() == null) {
+                continue;
+            }
             for (OsmPrimitive referrer : node.getReferrers()) {
                 if (referrer instanceof Way) {
                     parentWays.add((Way) referrer);
@@ -264,21 +332,22 @@ public class CleanupAction extends JosmAction {
             commands.add(new ChangeMembersCommand(relation, replacement));
         }
 
-        Map<String, String> tags = mergedTags(orderByParentWay(nodes), combinedLevel, combinedLevelref);
+        Map<String, String> tags = mergedTags(orderByParentWay(nodes), combinedLevel, combinedLevelRef);
         if (!tags.isEmpty()) {
-            commands.add(new ChangePropertyCommand(Collections.singleton(target), tags));
+            commands.add(new ChangePropertyCommand(dataSet, Collections.singleton(target), tags));
         }
         if (!target.getCoor().equals(center)) {
-            commands.add(new MoveCommand(target, center));
+            commands.add(new MoveCommand(dataSet, target,
+                    target.getEastNorth(), ProjectionRegistry.getProjection().latlon2eastNorth(center)));
         }
         if (!nodesToDelete.isEmpty()) {
-            commands.add(new DeleteCommand(nodesToDelete));
+            commands.add(new DeleteCommand(dataSet, nodesToDelete));
         }
         return commands.isEmpty() ? null : new SequenceCommand(tr("Merge nearby elevator nodes"), commands);
     }
 
     private static Map<String, String> mergedTags(List<Node> nodes, String combinedLevel,
-            String combinedLevelref) {
+            String combinedLevelRef) {
         Map<String, String> tags = new HashMap<>();
         for (Node node : nodes) {
             for (String key : node.keySet()) {
@@ -291,8 +360,8 @@ public class CleanupAction extends JosmAction {
         if (combinedLevel != null) {
             tags.put("level", combinedLevel);
         }
-        if (combinedLevelref != null) {
-            tags.put("levelref", combinedLevelref);
+        if (combinedLevelRef != null) {
+            tags.put("level:ref", combinedLevelRef);
         }
         return tags;
     }
@@ -316,6 +385,9 @@ public class CleanupAction extends JosmAction {
 
     private static List<Node> orderByParentWay(List<Node> nodes) {
         if (nodes.size() < 2) {
+            return nodes;
+        }
+        if (nodes.get(0).getDataSet() == null) {
             return nodes;
         }
         for (OsmPrimitive referrer : nodes.get(0).getReferrers()) {

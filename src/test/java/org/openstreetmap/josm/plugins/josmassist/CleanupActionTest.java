@@ -121,8 +121,8 @@ public class CleanupActionTest {
                 && "elevator".equals(node.get("highway"))).findFirst().orElse(null);
         assertNotNull(survivor);
         assertEquals("-4;-3", survivor.get("level"));
-        assertTrue("L3;L4".equals(survivor.get("levelref"))
-                || "L4;L3".equals(survivor.get("levelref")));
+        assertTrue("L3;L4".equals(survivor.get("level:ref"))
+                || "L4;L3".equals(survivor.get("level:ref")));
         assertEquals((first.lat() + second.lat() + third.lat()) / 3, survivor.lat(), 1e-12);
         assertEquals(expectedLongitude, survivor.lon(), 1e-12);
         assertEquals(1, dataSet.getNodes().stream().filter(node -> !node.isDeleted()
@@ -215,7 +215,7 @@ public class CleanupActionTest {
         assertFalse(existing.isDeleted());
         assertEquals(1, dataSet.getNodes().stream().filter(node -> !node.isDeleted()
                 && "elevator".equals(node.get("highway"))).count());
-        assertNull(existing.get("name"));
+        assertEquals("Lift A", existing.get("name"));
         assertNull(way.get("highway"));
     }
 
@@ -267,6 +267,30 @@ public class CleanupActionTest {
         assertEquals(1, dataSet.getNodes().stream().filter(node -> !node.isDeleted()
                 && "elevator".equals(node.get("highway"))).count());
         assertNull(way.get("highway"));
+    }
+
+    @Test
+    public void nearbyStepsWayAddsItsLevelAndLevelRefToExistingElevator() {
+        DataSet dataSet = new DataSet();
+        Node[] nodes = closedNodes(5);
+        Way way = way(dataSet, "扶梯", nodes);
+        way.put("highway", "steps");
+        way.put("indoor", "area");
+        way.put("level", "-3");
+        way.put("level:ref", "B3");
+        Node existing = elevator(dataSet, averageLatitude(nodes), averageLongitude(nodes), "-4;-2", "B4;B2");
+
+        Command command = CleanupAction.createElevatorCommand(dataSet, 2);
+        assertNotNull(command);
+        assertTrue(command.executeCommand());
+
+        assertFalse(existing.isDeleted());
+        assertEquals("-4;-3;-2", existing.get("level"));
+        assertEquals("B4;B2;B3", existing.get("level:ref"));
+        assertEquals(1, dataSet.getNodes().stream().filter(node -> !node.isDeleted()
+                && "elevator".equals(node.get("highway"))).count());
+        assertNull(way.get("highway"));
+        assertNull(way.get("indoor"));
     }
 
     @Test
@@ -324,11 +348,11 @@ public class CleanupActionTest {
         assertEquals(7.5, MergeNearbyElevatorsAction.getDistancePreference(), 0.0);
     }
 
-    private static Node elevator(DataSet dataSet, double lat, double lon, String level, String levelref) {
+    private static Node elevator(DataSet dataSet, double lat, double lon, String level, String levelRef) {
         Node node = new Node(new LatLon(lat, lon));
         node.put("highway", "elevator");
         if (level != null) node.put("level", level);
-        if (levelref != null) node.put("levelref", levelref);
+        if (levelRef != null) node.put("level:ref", levelRef);
         dataSet.addPrimitive(node);
         return node;
     }
