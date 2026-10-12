@@ -155,6 +155,42 @@ public class CleanupActionTest {
     }
 
     @Test
+    public void removesOnlyActiveSingleLevelElevatorNodesAndUndoRestoresThem() {
+        DataSet dataSet = new DataSet();
+        Node single = elevator(dataSet, 0, 0, " 0; ;", "single");
+        Node multi = elevator(dataSet, 0, 0.00001, "0;1", null);
+        Node missing = elevator(dataSet, 0, 0.00002, null, null);
+        Node empty = elevator(dataSet, 0, 0.00003, " ; ", null);
+        Node other = new Node(new LatLon(0, 0.00004));
+        other.put("highway", "footway");
+        other.put("level", "0");
+        dataSet.addPrimitive(other);
+        Node incomplete = new Node(new LatLon(0, 0.00006));
+        incomplete.put("highway", "elevator");
+        incomplete.put("level", "0");
+        dataSet.addPrimitive(incomplete);
+        incomplete.setCoor(null);
+        Node deleted = elevator(dataSet, 0, 0.00005, "0", null);
+        deleted.setDeleted(true);
+
+        Command command = RemoveSingleLevelElevatorsAction.createCommand(dataSet);
+        assertNotNull(command);
+        assertTrue(command.executeCommand());
+        assertTrue(single.isDeleted());
+        assertFalse(multi.isDeleted());
+        assertFalse(missing.isDeleted());
+        assertFalse(empty.isDeleted());
+        assertFalse(other.isDeleted());
+        assertFalse(incomplete.isDeleted());
+        assertTrue(deleted.isDeleted());
+        assertEquals("single", single.get("level:ref"));
+
+        command.undoCommand();
+        assertFalse(single.isDeleted());
+        assertFalse(multi.isDeleted());
+    }
+
+    @Test
     public void redirectsParentWayAndKeepsFirstNonEmptyOtherTag() {
         DataSet dataSet = new DataSet();
         Node first = elevator(dataSet, 0, 0, "-4", null);
