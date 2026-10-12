@@ -11,15 +11,15 @@ import org.openstreetmap.josm.data.osm.DataSet;
 import org.openstreetmap.josm.gui.MainApplication;
 import org.openstreetmap.josm.tools.ImageProvider;
 
-/** Converts closed elevator and steps ways into elevator nodes. */
+/** Converts elevator and steps primitives into elevator nodes. */
 public class ConvertElevatorWaysAction extends JosmAction {
 
     /** Constructs the conversion action. */
     public ConvertElevatorWaysAction() {
-        super(tr("Convert Elevator Ways to Nodes"),
+        super(tr("Convert Elevator Ways and Steps Nodes"),
                 new ImageProvider("dialogs/search").setOptional(true)
                         .setMaxSize(ImageProvider.ImageSizes.TOOLBAR),
-                tr("Create elevator nodes from closed elevator and steps ways"),
+                tr("Create elevator nodes from elevator/steps ways and steps nodes"),
                 null, true, "josmassist-convert-elevator-ways", false);
     }
 

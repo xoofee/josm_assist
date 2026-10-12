@@ -17,7 +17,7 @@ import org.openstreetmap.josm.data.osm.DataSet;
 import org.openstreetmap.josm.data.osm.Node;
 import org.openstreetmap.josm.data.osm.Way;
 
-/** Converts closed elevator and steps ways into inspectable elevator nodes. */
+/** Converts elevator and steps primitives into inspectable elevator nodes. */
 final class ElevatorWayConverter {
 
     private ElevatorWayConverter() {
@@ -31,6 +31,12 @@ final class ElevatorWayConverter {
         }
 
         List<Command> commands = new ArrayList<>();
+        for (Node node : dataSet.getNodes()) {
+            if (isConvertible(node)) {
+                commands.add(new ChangePropertyCommand(Collections.singleton(node),
+                        "highway", "elevator"));
+            }
+        }
         for (Way way : dataSet.getWays()) {
             if (!isConvertible(way)) {
                 continue;
@@ -50,7 +56,12 @@ final class ElevatorWayConverter {
             }
         }
         return commands.isEmpty() ? null
-                : new SequenceCommand(tr("Convert elevator ways to nodes"), commands);
+                : new SequenceCommand(tr("Convert elevator ways and steps nodes"), commands);
+    }
+
+    private static boolean isConvertible(Node node) {
+        return node != null && !node.isDeleted() && !node.isIncomplete()
+                && node.isLatLonKnown() && "steps".equals(node.get("highway"));
     }
 
     private static boolean isConvertible(Way way) {

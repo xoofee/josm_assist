@@ -300,6 +300,74 @@ public class CleanupActionTest {
     }
 
     @Test
+    public void convertsStepsNodeInPlaceAndPreservesTags() {
+        DataSet dataSet = new DataSet();
+        Node steps = new Node(new LatLon(1, 2));
+        steps.put("highway", "steps");
+        steps.put("level", "0;1");
+        steps.put("name", "Steps Lift");
+        steps.put("ref", "preserve");
+        dataSet.addPrimitive(steps);
+
+        Command command = ElevatorWayConverter.createCommand(dataSet);
+        assertNotNull(command);
+        assertTrue(command.executeCommand());
+
+        assertEquals("elevator", steps.get("highway"));
+        assertEquals("0;1", steps.get("level"));
+        assertEquals("Steps Lift", steps.get("name"));
+        assertEquals("preserve", steps.get("ref"));
+
+        command.undoCommand();
+        assertEquals("steps", steps.get("highway"));
+        assertEquals("0;1", steps.get("level"));
+        assertEquals("Steps Lift", steps.get("name"));
+    }
+
+    @Test
+    public void skipsIneligibleStepsNodesAndUnrelatedNodes() {
+        DataSet dataSet = new DataSet();
+        Node deleted = new Node(new LatLon(1, 2));
+        deleted.put("highway", "steps");
+        deleted.setDeleted(true);
+        dataSet.addPrimitive(deleted);
+
+        Node incomplete = new Node(new LatLon(1, 2));
+        incomplete.put("highway", "steps");
+        incomplete.setCoor(null);
+        dataSet.addPrimitive(incomplete);
+
+        Node unrelated = new Node(new LatLon(1, 2));
+        unrelated.put("highway", "footway");
+        dataSet.addPrimitive(unrelated);
+
+        assertNull(ElevatorWayConverter.createCommand(dataSet));
+        assertEquals("steps", deleted.get("highway"));
+        assertEquals("steps", incomplete.get("highway"));
+        assertEquals("footway", unrelated.get("highway"));
+    }
+
+    @Test
+    public void convertsStepsNodeAlongsideElevatorWay() {
+        DataSet dataSet = new DataSet();
+        Node steps = new Node(new LatLon(1, 2));
+        steps.put("highway", "steps");
+        dataSet.addPrimitive(steps);
+        Way way = way(dataSet, "Lift", closedNodes(5));
+        way.put("highway", "elevator");
+
+        Command command = ElevatorWayConverter.createCommand(dataSet);
+        assertNotNull(command);
+        assertTrue(command.executeCommand());
+        assertEquals("elevator", steps.get("highway"));
+        assertNull(way.get("highway"));
+
+        command.undoCommand();
+        assertEquals("steps", steps.get("highway"));
+        assertEquals("elevator", way.get("highway"));
+    }
+
+    @Test
     public void stepsWayConvertsEvenWhenExistingElevatorIsNearby() {
         DataSet dataSet = new DataSet();
         Node[] nodes = closedNodes(5);
