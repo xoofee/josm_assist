@@ -43,7 +43,7 @@ public final class ElevatorRoadConnector {
         }
 
         List<Command> commands = new ArrayList<>();
-        Map<Way, Way> changedWays = new HashMap<>();
+        Map<Way, Map<Integer, List<WayInsertion>>> insertedNodes = new HashMap<>();
         Set<Way> serviceWays = new HashSet<>(dataSet.getWays());
 
         for (Node elevator : elevators) {
@@ -71,14 +71,9 @@ public final class ElevatorRoadConnector {
                     roadNode = new Node(projection.position);
                     commands.add(new AddCommand(dataSet, roadNode));
 
-                    Way changedWay = changedWays.get(projection.way);
-                    if (changedWay == null) {
-                        changedWay = new Way(projection.way);
-                        changedWays.put(projection.way, changedWay);
-                    }
-                    List<Node> wayNodes = new ArrayList<>(changedWay.getNodes());
-                    wayNodes.add(projection.insertIndex, roadNode);
-                    changedWay.setNodes(wayNodes);
+                    insertedNodes.computeIfAbsent(projection.way, way -> new HashMap<>())
+                            .computeIfAbsent(projection.insertIndex - 1, index -> new ArrayList<>())
+                            .add(new WayInsertion(roadNode, projection.segmentFraction));
                 }
 
                 Way connector = new Way();
@@ -91,8 +86,23 @@ public final class ElevatorRoadConnector {
             }
         }
 
-        for (Map.Entry<Way, Way> entry : changedWays.entrySet()) {
-            commands.add(new ChangeCommand(entry.getKey(), entry.getValue()));
+        for (Map.Entry<Way, Map<Integer, List<WayInsertion>>> entry : insertedNodes.entrySet()) {
+            Way originalWay = entry.getKey();
+            List<Node> wayNodes = new ArrayList<>();
+            List<Node> originalNodes = originalWay.getNodes();
+            for (int i = 0; i < originalNodes.size(); i++) {
+                wayNodes.add(originalNodes.get(i));
+                List<WayInsertion> segmentNodes = entry.getValue().get(i);
+                if (segmentNodes != null) {
+                    segmentNodes.sort((first, second) -> Double.compare(first.fraction, second.fraction));
+                    for (WayInsertion insertion : segmentNodes) {
+                        wayNodes.add(insertion.node);
+                    }
+                }
+            }
+            Way changedWay = new Way(originalWay);
+            changedWay.setNodes(wayNodes);
+            commands.add(new ChangeCommand(originalWay, changedWay));
         }
 
         return commands.isEmpty() ? null : new SequenceCommand("Connect elevators to service roads", commands);
@@ -144,7 +154,8 @@ public final class ElevatorRoadConnector {
                 Node second = nodes.get(i + 1);
                 EastNorth a = first.getEastNorth(ProjectionRegistry.getProjection());
                 EastNorth b = second.getEastNorth(ProjectionRegistry.getProjection());
-                EastNorth projected = project(elevatorPosition, a, b);
+                double fraction = projectFraction(elevatorPosition, a, b);
+                EastNorth projected = interpolate(a, b, fraction);
                 double distance = elevatorPosition.distance(projected);
                 if (nearest == null || distance < nearest.distance) {
                     Node endpoint = null;
@@ -154,7 +165,7 @@ public final class ElevatorRoadConnector {
                     } else if (projected.distance(b) <= ENDPOINT_EPSILON) {
                         endpoint = second;
                     }
-                    nearest = new Projection(way, projected, distance, endpoint, insertIndex);
+                    nearest = new Projection(way, projected, distance, endpoint, insertIndex, fraction);
                 }
             }
         }
@@ -168,16 +179,30 @@ public final class ElevatorRoadConnector {
         return levelsOf(wayLevel).contains(requestedLevel);
     }
 
-    private static EastNorth project(EastNorth point, EastNorth start, EastNorth end) {
+    private static double projectFraction(EastNorth point, EastNorth start, EastNorth end) {
         double dx = end.east() - start.east();
         double dy = end.north() - start.north();
         double lengthSquared = dx * dx + dy * dy;
         if (lengthSquared == 0) {
-            return start;
+            return 0;
         }
         double t = ((point.east() - start.east()) * dx + (point.north() - start.north()) * dy) / lengthSquared;
-        t = Math.max(0, Math.min(1, t));
-        return new EastNorth(start.east() + t * dx, start.north() + t * dy);
+        return Math.max(0, Math.min(1, t));
+    }
+
+    private static EastNorth interpolate(EastNorth start, EastNorth end, double fraction) {
+        return new EastNorth(start.east() + fraction * (end.east() - start.east()),
+                start.north() + fraction * (end.north() - start.north()));
+    }
+
+    private static final class WayInsertion {
+        private final Node node;
+        private final double fraction;
+
+        private WayInsertion(Node node, double fraction) {
+            this.node = node;
+            this.fraction = fraction;
+        }
     }
 
     private static final class Projection {
@@ -186,13 +211,16 @@ public final class ElevatorRoadConnector {
         private final double distance;
         private final Node node;
         private final int insertIndex;
+        private final double segmentFraction;
 
-        private Projection(Way way, EastNorth position, double distance, Node node, int insertIndex) {
+        private Projection(Way way, EastNorth position, double distance, Node node, int insertIndex,
+                double segmentFraction) {
             this.way = way;
             this.position = position;
             this.distance = distance;
             this.node = node;
             this.insertIndex = insertIndex;
+            this.segmentFraction = segmentFraction;
         }
     }
 }
